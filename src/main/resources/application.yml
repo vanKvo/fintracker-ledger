@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: ledger-service
+  config:
+    import: "optional:file:.env[.properties]"
+  threads:
+    virtual:
+      enabled: true  # Enable Project Loom virtual threads for all I/O
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 5000
+  jooq:
+    sql-dialect: POSTGRES
+  flyway:
+    enabled: true
+    schemas: ledger
+    locations: classpath:db/migration
+
+server:
+  port: 8081
+  error:
+    whitelabel:
+      enabled: false # Disable Spring's default error page; we use RFC 9457
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  tracing:
+    sampling:
+      probability: 1.0  # 100% sampling; tune for production
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n"
+
+resilience4j:
+  retry:
+    instances:
+      default:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+  circuitbreaker:
+    instances:
+      default:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        sliding-window-size: 10
