@@ -1,10 +1,16 @@
 # Ledger Service
 
-The Ledger Service is the core transactional engine for FinTracker, responsible for maintaining ACID-compliant financial records, budgets, and statements. Built with Spring Boot 3.4.4, Hexagonal Architecture, and jOOQ, it securely processes integrations and strictly isolates data across users via PostgreSQL RLS-ready structures.
+The Ledger Service is the core transactional engine for FinTracker, responsible for maintaining ACID-compliant financial records, budgets, and statements. Built with Java Spring Boot, Hexagonal Architecture, and jOOQ, it securely processes integrations and strictly isolates data across users via PostgreSQL RLS-ready structures.
+
+## Key Features & Impacts
+* **Core Financial Engine:** Provides immutable, double-entry style ledger tracking for all user financial activity, guaranteeing 100% mathematical accuracy for account balances.
+* **Tenant Isolation Security:** Implements rigorous Row-Level Security (RLS) patterns and a `UserContextFilter` that injects the verified API Gateway identity into every single jOOQ SQL query, making cross-tenant data leaks impossible.
+* **Smart Budgeting:** Enables granular budget configurations and automatic matching algorithms to track spending velocity against user-defined limits.
+* **Cascade Integrity:** Ensures referential integrity where deleting a source statement cascade-deletes all generated dependent transactions, while gracefully preserving user-entered manual adjustments.
 
 ## Architecture
 
-This service strictly adheres to a Hexagonal (Ports & Adapters) pattern, decoupling the core domain from REST endpoints and PostgreSQL interactions.
+This service strictly adheres to a Hexagonal (Ports & Adapters) pattern, completely decoupling the pure Java core domain from REST framework specifics and PostgreSQL interactions.
 
 ```text
 src/main/java/com/fintracker/ledger
@@ -18,59 +24,68 @@ src/main/java/com/fintracker/ledger
     ├── jooq/        # jOOQ Code Generation (Target)
     └── persistence/ # jOOQ Repositories implementations
 ```
+*(For complete system diagrams, see `/docs/fintracker-architectural-doc.md`)*
+
+## Tech Stack
+Frontend:	Angular (via fintracker-ui)
+Backend:	Java 21, Spring Boot 3.4.4
+Database:	PostgreSQL 16, jOOQ, Flyway
+DevOps:		Maven, Docker, Testcontainers, ArchUnit
 
 ## Modules & Interfaces
 
+**REST API Operations**
 | Module | Method | Path | Description |
 |---|---|---|---|
-| Dashboard | GET | `/api/v1/ledger/dashboard/aggregations` | Fetch financial summary for UI components |
-| Dashboard | GET | `/api/v1/ledger/bills` | Fetch upcoming bills and their statuses |
-| Dashboard | POST | `/api/v1/ledger/bills/{id}/pay` | Mark an upcoming bill as paid |
-| Transactions | GET | `/api/v1/ledger/transactions` | Query, filter, and paginate transactions |
-| Transactions | PUT | `/api/v1/ledger/transactions/{id}/approve` | Mark pending transaction as POSTED |
-| Transactions | POST | `/api/v1/ledger/transactions/{id}/split` | Split a transaction across categories |
-| Transactions | POST | `/api/v1/ledger/transactions/bulk` | Bulk Operations (Approve/Exclude) |
-| Transactions | PUT | `/api/v1/ledger/transactions/{id}/exclude` | Toggle exclusion from budgeting |
-| Transactions | DELETE | `/api/v1/ledger/transactions/{id}` | Delete a manually entered transaction |
-| Statements | GET | `/api/v1/ledger/statements` | Fetch statements history |
-| Statements | DELETE | `/api/v1/ledger/statements/{id}` | Delete statement & cascade transactions |
-| Budgets | GET | `/api/v1/ledger/budgets` | Fetch budget configurations |
-| Budgets | POST | `/api/v1/ledger/budgets` | Upsert budgets & budget lines |
+| Dashboard | `GET` | `/api/v1/ledger/dashboard/aggregations` | Fetch financial summary for UI components. |
+| Dashboard | `GET` | `/api/v1/ledger/bills` | Fetch upcoming bills and their statuses. |
+| Dashboard | `POST` | `/api/v1/ledger/bills/{id}/pay` | Mark an upcoming bill as paid. |
+| Transactions | `GET` | `/api/v1/ledger/transactions` | Query, filter, and paginate transactions. |
+| Transactions | `PUT` | `/api/v1/ledger/transactions/{id}/approve` | Mark pending transaction as POSTED. |
+| Transactions | `POST` | `/api/v1/ledger/transactions/{id}/split` | Split a transaction across categories. |
+| Transactions | `POST` | `/api/v1/ledger/transactions/bulk` | Bulk Operations (Approve/Exclude). |
+| Transactions | `PUT` | `/api/v1/ledger/transactions/{id}/exclude` | Toggle exclusion from budgeting. |
+| Transactions | `DELETE` | `/api/v1/ledger/transactions/{id}` | Delete a manually entered transaction. |
+| Statements | `GET` | `/api/v1/ledger/statements` | Fetch statements history. |
+| Statements | `DELETE` | `/api/v1/ledger/statements/{id}` | Delete statement & cascade transactions. |
+| Budgets | `GET` | `/api/v1/ledger/budgets` | Fetch budget configurations. |
+| Budgets | `POST` | `/api/v1/ledger/budgets` | Upsert budgets & budget lines. |
 
 ## Core Workflows
 
-- **Tenant Isolation**: Incoming requests hit the `UserContextFilter`, resolving identity through `X-Internal-User-Id` headers set by the API Gateway. The context filters all jOOQ queries unconditionally.
-- **Statement Cascading**: When an imported statement is deleted, all dependent transactions strictly cascade-delete, leaving manual user-added transactions intact.
-- **Dynamic SQL Querying**: Filter queries are efficiently built via jOOQ `dsl.select()....and(noCondition())`, gracefully removing N+1 problem possibilities while avoiding string concatenation vulnerabilities.
+* **Tenant Isolation Routing:** Incoming requests pass through the `UserContextFilter`, securely resolving the `X-Internal-User-Id` header provided by the API Gateway. This context contextually filters all downstream jOOQ queries.
+* **Dynamic SQL Querying:** Advanced transactional filtering relies on dynamically constructed jOOQ SQL expressions, heavily optimizing complex multi-join filters while eliminating string-concatenation SQL injection vectors and avoiding N+1 read problems.
+* **Event-Driven Cleanup:** Listens for account deletion events (via an EventBridge integration or adapter) to compliantly erase all transactional history associated with a deleted user.
 
-## Local Setup
+## Quick Start
+<details>
+<summary>Click to expand setup instructions</summary>
 
 ### Prerequisites
-- Java 21+
-- Maven 3.9+
-- Docker & Docker Compose
-- PostgreSQL 16+
+* Java 21+
+* Maven 3.9+
+* Docker & Docker Compose
 
-### Run Locally
-Start the PostgreSQL container (from the root or local directory):
-```bash
-docker compose up -d
-```
-Ensure you have the required `DB_PASSWORD` and container variables in `.env` or system variables.
-Run the service:
-```bash
-mvn spring-boot:run
-```
+### Installation & Run
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/vanKvo/fintracker.git
+    cd fintracker/services/fintracker-ledger
+    ```
+2.  **Start the Database:**
+    Launch the PostgreSQL 16 container (ensure `DB_PASSWORD` is configured in your environment):
+    ```bash
+    docker compose up -d
+    ```
+3.  **Run the Service:**
+    ```bash
+    mvn spring-boot:run
+    ```
 
 ### Build & Test
-Compile the code and run full ArchUnit and Testcontainers test suites:
+Compile the code, trigger jOOQ code generation against the Flyway schema, and run full ArchUnit and Testcontainers test suites:
 ```bash
 mvn clean package
 ```
 
-## Key Design Decisions
-
-- **jOOQ over Hibernate**: Enables complete control over schema validation via compilation and highly-performant batch queries on high-volume statement imports.
-- **Hexagonal Architecture**: Business logic in `domain/` contains zero Spring or Web dependencies, resulting in lightning fast unit testing and a modular upgrade path.
-- **Problem Details RFC 9457**: Security Rejections map to standard generic errors through Spring's `ProblemDetail`, preventing internal data leakage to external callers.
-- **Type-safe Flyway Automation**: Code generation hooks directly into Flyway schemas during Maven phases matching the actual deployed baseline.
+</details>
