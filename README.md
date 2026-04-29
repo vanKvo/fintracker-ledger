@@ -27,10 +27,11 @@ src/main/java/com/fintracker/ledger
 *(For complete system diagrams, see `/docs/fintracker-architectural-doc.md`)*
 
 ## Tech Stack
-Frontend:	Angular (via fintracker-ui)
-Backend:	Java 21, Spring Boot 3.4.4
-Database:	PostgreSQL 16, jOOQ, Flyway
-DevOps:		Maven, Docker, Testcontainers, ArchUnit
+* **Frontend:** Angular (via fintracker-ui)
+* **Backend:** Java 21, Spring Boot 3.4.4, PostgreSQL 16, jOOQ, Flyway
+* **Cloud:** AWS (API Gateway, EventBridge, S3)
+* **DevOps:** Maven, Docker
+* **Testing:** Testcontainers, ArchUnit
 
 ## Modules & Interfaces
 
