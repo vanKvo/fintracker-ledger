@@ -1,0 +1,22 @@
+# Build artifacts
+target/
+
+# VCS
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets and local config (recreated in the build stage via RUN printf)
+.env
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Not needed in the image
+docs/
+test-data/
+README.md
