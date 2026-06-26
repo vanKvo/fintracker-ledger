@@ -8,34 +8,14 @@ The Ledger Service is the core transactional engine for FinTracker, responsible 
 * **Smart Budgeting:** Enables granular budget configurations and automatic matching algorithms to track spending velocity against user-defined limits.
 * **Cascade Integrity:** Ensures referential integrity where deleting a source statement cascade-deletes all generated dependent transactions, while gracefully preserving user-entered manual adjustments.
 
-## Architecture
-
-This service strictly adheres to a Hexagonal (Ports & Adapters) pattern, completely decoupling the pure Java core domain from REST framework specifics and PostgreSQL interactions.
-
-```text
-src/main/java/com/fintracker/ledger
-├── api/             # Primary / Driving Adapters (REST Controllers)
-├── config/          # Spring Boot Wiring & Security Filters
-├── domain/          # Core Business Logic & Interfaces (Ports)
-│   ├── model/       # Domain Entities & Value Objects
-│   ├── ports/       # Inbound / Outbound Ports (Interfaces)
-│   └── service/     # Business Use Cases
-└── infrastructure/  # Secondary / Driven Adapters
-    ├── jooq/        # jOOQ Code Generation (Target)
-    └── persistence/ # jOOQ Repositories implementations
-```
-*(For complete system diagrams, see `/docs/fintracker-architectural-doc.md`)*
-
 ## Tech Stack
 * **Frontend:** Angular (via fintracker-ui)
-* **Backend:** Java 21, Spring Boot 3.4.4, PostgreSQL 16, jOOQ, Flyway
+* **Backend:** Java 21, Spring Boot 3.4.4, PostgreSQL 16, jOOQ (SQL-related code), Flyway (manages database schemas and migrations)
 * **Cloud:** AWS (API Gateway, EventBridge, S3)
 * **DevOps:** Maven, Docker
-* **Testing:** Testcontainers, ArchUnit
+* **Testing:** Spring Boot Start Test (JUnit, Mockito, AssertJ), Testcontainers
 
-## Modules & Interfaces
-
-**REST API Operations**
+## REST APIs
 | Module | Method | Path | Description |
 |---|---|---|---|
 | Dashboard | `GET` | `/api/v1/ledger/dashboard/aggregations` | Fetch financial summary for UI components. |
@@ -52,12 +32,6 @@ src/main/java/com/fintracker/ledger
 | Budgets | `GET` | `/api/v1/ledger/budgets` | Fetch budget configurations. |
 | Budgets | `POST` | `/api/v1/ledger/budgets` | Upsert budgets & budget lines. |
 
-## Core Workflows
-
-* **Tenant Isolation Routing:** Incoming requests pass through the `UserContextFilter`, securely resolving the `X-Internal-User-Id` header provided by the API Gateway. This context contextually filters all downstream jOOQ queries.
-* **Dynamic SQL Querying:** Advanced transactional filtering relies on dynamically constructed jOOQ SQL expressions, heavily optimizing complex multi-join filters while eliminating string-concatenation SQL injection vectors and avoiding N+1 read problems.
-* **Event-Driven Cleanup:** Listens for account deletion events (via an EventBridge integration or adapter) to compliantly erase all transactional history associated with a deleted user.
-
 ## Quick Start
 <details>
 <summary>Click to expand setup instructions</summary>
@@ -68,25 +42,32 @@ src/main/java/com/fintracker/ledger
 * Docker & Docker Compose
 
 ### Installation & Run
-1.  **Clone the repository:**
+**Option 1 — Fully containerized**                                                                                    
+1. cd services/fintracker-ledger                                                                                                                    
+2. docker compose up --build       # first time (compiles + starts both containers)                                                                 
+3. docker compose up               # subsequent starts (no rebuild)
+
+**Option 2 — Running apps in the local host**         
+1. Clone the repository:
     ```bash
     git clone https://github.com/vanKvo/fintracker.git
     cd fintracker/services/fintracker-ledger
     ```
-2.  **Start the Database:**
-    Launch the PostgreSQL 16 container (ensure `DB_PASSWORD` is configured in your environment):
+2. Start the database in the local host:
     ```bash
-    docker compose up -d
+    docker run --name fintracker -e POSTGRES_PASSWORD=<mysecretpassword> -d -p 5432:5432 postgres
     ```
-3.  **Run the Service:**
+3. Run the Service:
     ```bash
     mvn spring-boot:run
     ```
 
-### Build & Test
-Compile the code, trigger jOOQ code generation against the Flyway schema, and run full ArchUnit and Testcontainers test suites:
+### Testing
+Seed the test data
 ```bash
-mvn clean package
+psql -U <user> -d <db> -f services/fintracker-ledger/test-data/seed-statements.sql
+
 ```
+
 
 </details>
