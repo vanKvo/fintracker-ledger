@@ -30,8 +30,8 @@ public class BillServiceImpl implements BillService {
     }
 
     @Override
-    public void markBillAsPaid(UUID billId, UUID transactionId) {
-        billRepository.findById(billId)
+    public void markBillAsPaid(UUID billId, UUID transactionId, UUID userId) {
+        billRepository.findByIdAndUserId(billId, userId)
                 .orElseThrow(() -> new BillNotFoundException(billId));
 
         LocalDate paidForMonth = LocalDate.now().withDayOfMonth(1);

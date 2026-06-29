@@ -63,10 +63,19 @@ public class JooqTransactionRepository implements TransactionRepository {
     }
 
     @Override
-    public Optional<Transaction> findById(UUID transactionId) {
+    public Optional<Transaction> findByIdAndUserId(UUID transactionId, UUID userId) {
         return dsl.selectFrom(table(name(SCHEMA, TX_TABLE)))
                 .where(field("transaction_id").eq(transactionId))
+                .and(field("user_id").eq(userId))
                 .fetchOptional(this::mapToTransaction);
+    }
+
+    // Used only internally after INSERT to reload the persisted record.
+    private Transaction findByIdInternal(UUID transactionId) {
+        return dsl.selectFrom(table(name(SCHEMA, TX_TABLE)))
+                .where(field("transaction_id").eq(transactionId))
+                .fetchOptional(this::mapToTransaction)
+                .orElseThrow();
     }
 
     @Override
@@ -91,7 +100,7 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .set(field("is_excluded"), transaction.isExcluded())
                 .execute();
 
-        return findById(id).orElseThrow();
+        return findByIdInternal(id);
     }
 
     @Override

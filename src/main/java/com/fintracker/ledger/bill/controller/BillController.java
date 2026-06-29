@@ -28,9 +28,10 @@ public class BillController {
     @PostMapping("/bills/{id}/pay")
     public ResponseEntity<Void> markBillAsPaid(
             @PathVariable UUID id,
-            @Valid @RequestBody MarkBillPaidRequest request
+            @Valid @RequestBody MarkBillPaidRequest request,
+            @RequestAttribute("userId") UUID userId
     ) {
-        billService.markBillAsPaid(id, request.transactionId());
+        billService.markBillAsPaid(id, request.transactionId(), userId);
         return ResponseEntity.noContent().build();
     }
 }

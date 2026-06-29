@@ -13,7 +13,7 @@ public interface TransactionRepository {
 
     List<Transaction> findAll(TransactionFilter filter);
 
-    Optional<Transaction> findById(UUID transactionId);
+    Optional<Transaction> findByIdAndUserId(UUID transactionId, UUID userId);
 
     Transaction save(Transaction transaction);
 

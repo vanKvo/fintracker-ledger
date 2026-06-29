@@ -12,7 +12,7 @@ public interface BillRepository {
 
     List<UpcomingBillDto> findActiveBillsByUserId(UUID userId);
 
-    Optional<UpcomingBillDto> findById(UUID billId);
+    Optional<UpcomingBillDto> findByIdAndUserId(UUID billId, UUID userId);
 
     BigDecimal sumPaidBillsForMonth(UUID userId, LocalDate monthStart);
 

@@ -10,9 +10,9 @@ public interface StatementRepository {
 
     List<Statement> findAllByUserId(UUID userId);
 
-    Optional<Statement> findById(UUID statementId);
+    Optional<Statement> findByIdAndUserId(UUID statementId, UUID userId);
 
     void updateStatus(UUID statementId, Statement.StatementStatus status);
 
-    void deleteById(UUID statementId);
+    void deleteByIdAndUserId(UUID statementId, UUID userId);
 }

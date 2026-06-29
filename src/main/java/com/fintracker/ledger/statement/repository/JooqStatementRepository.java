@@ -37,9 +37,10 @@ public class JooqStatementRepository implements StatementRepository {
     }
 
     @Override
-    public Optional<Statement> findById(UUID statementId) {
+    public Optional<Statement> findByIdAndUserId(UUID statementId, UUID userId) {
         return dsl.selectFrom(table(name(SCHEMA, TABLE)))
                 .where(field("statement_id").eq(statementId))
+                .and(field("user_id").eq(userId))
                 .fetchOptional(this::mapToStatement);
     }
 
@@ -52,9 +53,10 @@ public class JooqStatementRepository implements StatementRepository {
     }
 
     @Override
-    public void deleteById(UUID statementId) {
+    public void deleteByIdAndUserId(UUID statementId, UUID userId) {
         dsl.deleteFrom(table(name(SCHEMA, TABLE)))
                 .where(field("statement_id").eq(statementId))
+                .and(field("user_id").eq(userId))
                 .execute();
     }
 

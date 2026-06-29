@@ -1,5 +1,6 @@
 package com.fintracker.ledger.config;
 
+import com.fintracker.ledger.shared.UserContextHolder;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,8 +65,13 @@ public class UserContextFilter extends OncePerRequestFilter {
         }
 
         request.setAttribute(ATTRIBUTE, userId);
+        UserContextHolder.set(userId);
         log.debug("User context set. userId={} path={}", userId, request.getRequestURI());
-        filterChain.doFilter(request, response);
+        try {
+            filterChain.doFilter(request, response);
+        } finally {
+            UserContextHolder.clear();
+        }
     }
 
     private void writeProblemDetail(HttpServletResponse response,

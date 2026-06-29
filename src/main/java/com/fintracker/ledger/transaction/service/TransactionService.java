@@ -12,15 +12,15 @@ public interface TransactionService {
 
     List<Transaction> getTransactions(TransactionFilter filter);
 
-    void approveTransaction(UUID transactionId);
+    void approveTransaction(UUID transactionId, UUID userId);
 
-    List<Transaction> splitTransaction(UUID parentId, List<SplitRequest> splits);
+    List<Transaction> splitTransaction(UUID parentId, List<SplitRequest> splits, UUID userId);
 
-    void bulkApprove(List<UUID> transactionIds);
+    void bulkApprove(List<UUID> transactionIds, UUID userId);
 
-    void toggleExclude(UUID transactionId, boolean exclude);
+    void toggleExclude(UUID transactionId, boolean exclude, UUID userId);
 
-    void deleteManualTransaction(UUID transactionId);
+    void deleteManualTransaction(UUID transactionId, UUID userId);
 
     BigDecimal sumMonthlyIncome(UUID userId, LocalDate start, LocalDate end);
 

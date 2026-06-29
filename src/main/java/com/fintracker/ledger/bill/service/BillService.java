@@ -11,7 +11,7 @@ public interface BillService {
 
     List<UpcomingBillDto> getUpcomingBills(UUID userId);
 
-    void markBillAsPaid(UUID billId, UUID transactionId);
+    void markBillAsPaid(UUID billId, UUID transactionId, UUID userId);
 
     BigDecimal sumPaidBillsForMonth(UUID userId, LocalDate monthStart);
 }

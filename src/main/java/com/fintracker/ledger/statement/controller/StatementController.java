@@ -24,8 +24,9 @@ public class StatementController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteStatement(@PathVariable UUID id) {
-        statementService.deleteStatement(id);
+    public ResponseEntity<Void> deleteStatement(@PathVariable UUID id,
+                                                @RequestAttribute("userId") UUID userId) {
+        statementService.deleteStatement(id, userId);
         return ResponseEntity.noContent().build();
     }
 }

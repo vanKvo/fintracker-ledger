@@ -33,11 +33,11 @@ public class StatementServiceImpl implements StatementService {
     }
 
     @Override
-    public void deleteStatement(UUID statementId) {
-        statementRepository.findById(statementId)
+    public void deleteStatement(UUID statementId, UUID userId) {
+        statementRepository.findByIdAndUserId(statementId, userId)
                 .orElseThrow(() -> new StatementNotFoundException(statementId));
 
-        statementRepository.deleteById(statementId);
+        statementRepository.deleteByIdAndUserId(statementId, userId);
         log.info("Hard-deleted statement statementId={}. Cascaded transactions removed.", statementId);
     }
 }

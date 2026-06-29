@@ -11,5 +11,5 @@ public interface StatementService {
 
     void updateStatus(UUID statementId, Statement.StatementStatus status);
 
-    void deleteStatement(UUID statementId);
+    void deleteStatement(UUID statementId, UUID userId);
 }

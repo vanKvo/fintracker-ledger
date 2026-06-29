@@ -39,8 +39,8 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Override
-    public void approveTransaction(UUID transactionId) {
-        var transaction = transactionRepository.findById(transactionId)
+    public void approveTransaction(UUID transactionId, UUID userId) {
+        var transaction = transactionRepository.findByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new TransactionNotFoundException(transactionId));
 
         if (transaction.status() != Transaction.TransactionStatus.PENDING_APPROVAL) {
@@ -65,8 +65,8 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Override
-    public List<Transaction> splitTransaction(UUID parentId, List<SplitRequest> splits) {
-        var parent = transactionRepository.findById(parentId)
+    public List<Transaction> splitTransaction(UUID parentId, List<SplitRequest> splits, UUID userId) {
+        var parent = transactionRepository.findByIdAndUserId(parentId, userId)
                 .orElseThrow(() -> new TransactionNotFoundException(parentId));
 
         if (parent.status() == Transaction.TransactionStatus.POSTED) {
@@ -90,18 +90,20 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Override
-    public void bulkApprove(List<UUID> transactionIds) {
-        transactionIds.forEach(this::approveTransaction);
+    public void bulkApprove(List<UUID> transactionIds, UUID userId) {
+        transactionIds.forEach(id -> approveTransaction(id, userId));
     }
 
     @Override
-    public void toggleExclude(UUID transactionId, boolean exclude) {
+    public void toggleExclude(UUID transactionId, boolean exclude, UUID userId) {
+        transactionRepository.findByIdAndUserId(transactionId, userId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
         transactionRepository.toggleExcluded(transactionId, exclude);
     }
 
     @Override
-    public void deleteManualTransaction(UUID transactionId) {
-        var transaction = transactionRepository.findById(transactionId)
+    public void deleteManualTransaction(UUID transactionId, UUID userId) {
+        var transaction = transactionRepository.findByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new TransactionNotFoundException(transactionId));
 
         if (!transaction.isManual()) {

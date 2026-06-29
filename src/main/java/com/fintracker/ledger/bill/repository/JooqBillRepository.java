@@ -44,9 +44,10 @@ public class JooqBillRepository implements BillRepository {
     }
 
     @Override
-    public Optional<UpcomingBillDto> findById(UUID billId) {
+    public Optional<UpcomingBillDto> findByIdAndUserId(UUID billId, UUID userId) {
         return dsl.selectFrom(table(name("ledger", "upcoming_bills")))
                 .where(field("bill_id").eq(billId))
+                .and(field("user_id").eq(userId))
                 .fetchOptional(r -> new UpcomingBillDto(
                         r.get("bill_id", UUID.class),
                         r.get("user_id", UUID.class),

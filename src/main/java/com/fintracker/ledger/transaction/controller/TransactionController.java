@@ -45,42 +45,47 @@ public class TransactionController {
     }
 
     @PutMapping("/{id}/approve")
-    public ResponseEntity<Void> approveTransaction(@PathVariable UUID id) {
-        transactionService.approveTransaction(id);
+    public ResponseEntity<Void> approveTransaction(@PathVariable UUID id,
+                                                   @RequestAttribute("userId") UUID userId) {
+        transactionService.approveTransaction(id, userId);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{id}/exclude")
     public ResponseEntity<Void> toggleExclude(@PathVariable UUID id,
-                                               @RequestParam boolean exclude) {
-        transactionService.toggleExclude(id, exclude);
+                                               @RequestParam boolean exclude,
+                                               @RequestAttribute("userId") UUID userId) {
+        transactionService.toggleExclude(id, exclude, userId);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/split")
     public ResponseEntity<List<Transaction>> splitTransaction(
             @PathVariable UUID id,
-            @Valid @RequestBody SplitTransactionRequest request
+            @Valid @RequestBody SplitTransactionRequest request,
+            @RequestAttribute("userId") UUID userId
     ) {
         var splitRequests = request.splits().stream()
                 .map(s -> new TransactionService.SplitRequest(s.amount(), s.category()))
                 .toList();
-        return ResponseEntity.ok(transactionService.splitTransaction(id, splitRequests));
+        return ResponseEntity.ok(transactionService.splitTransaction(id, splitRequests, userId));
     }
 
     @PostMapping("/bulk")
-    public ResponseEntity<Void> bulkAction(@Valid @RequestBody BulkActionRequest request) {
+    public ResponseEntity<Void> bulkAction(@Valid @RequestBody BulkActionRequest request,
+                                           @RequestAttribute("userId") UUID userId) {
         switch (request.action()) {
-            case APPROVE -> transactionService.bulkApprove(request.transactionIds());
-            case EXCLUDE -> request.transactionIds().forEach(id -> transactionService.toggleExclude(id, true));
-            case INCLUDE -> request.transactionIds().forEach(id -> transactionService.toggleExclude(id, false));
+            case APPROVE -> transactionService.bulkApprove(request.transactionIds(), userId);
+            case EXCLUDE -> request.transactionIds().forEach(id -> transactionService.toggleExclude(id, true, userId));
+            case INCLUDE -> request.transactionIds().forEach(id -> transactionService.toggleExclude(id, false, userId));
         }
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteTransaction(@PathVariable UUID id) {
-        transactionService.deleteManualTransaction(id);
+    public ResponseEntity<Void> deleteTransaction(@PathVariable UUID id,
+                                                  @RequestAttribute("userId") UUID userId) {
+        transactionService.deleteManualTransaction(id, userId);
         return ResponseEntity.noContent().build();
     }
 }
