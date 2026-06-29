@@ -15,6 +15,8 @@ The Ledger Service is the core transactional engine for FinTracker, responsible 
 * **DevOps:** Maven, Docker
 * **Testing:** Spring Boot Start Test (JUnit, Mockito, AssertJ), Testcontainers
 
+## Architecture
+
 ## REST APIs
 | Module | Method | Path | Description |
 |---|---|---|---|
