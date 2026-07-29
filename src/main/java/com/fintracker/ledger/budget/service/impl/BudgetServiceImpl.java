@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -22,11 +23,23 @@ public class BudgetServiceImpl implements BudgetService {
 
     private final BudgetRepository budgetRepository;
     private final TransactionService transactionService;
+    private final Clock clock;
 
     public BudgetServiceImpl(BudgetRepository budgetRepository,
-                             TransactionService transactionService) {
+                             TransactionService transactionService,
+                             Clock clock) {
         this.budgetRepository = budgetRepository;
         this.transactionService = transactionService;
+        this.clock = clock;
+    }
+
+    /**
+     * REQ-5.1: the first day of the month the injected {@link Clock} is currently in. Every
+     * past / current / future classification in this service resolves through here so the
+     * behavior is deterministic and zone-independent — never {@code LocalDate.now()}.
+     */
+    private LocalDate currentMonth() {
+        return LocalDate.now(clock).withDayOfMonth(1);
     }
 
     @Override
@@ -42,7 +55,7 @@ public class BudgetServiceImpl implements BudgetService {
     public Budget upsertBudget(UUID userId, LocalDate effectiveMonth, List<BudgetLine> lines) {
         LocalDate normalizedMonth = effectiveMonth.withDayOfMonth(1);
 
-        if (normalizedMonth.isBefore(LocalDate.now().withDayOfMonth(1))) {
+        if (normalizedMonth.isBefore(currentMonth())) {
             throw new PastMonthModificationException(normalizedMonth);
         }
 
