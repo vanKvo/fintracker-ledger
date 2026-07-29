@@ -1,7 +1,10 @@
 package com.fintracker.ledger.config;
 
-import com.fintracker.ledger.budget.exception.PastMonthModificationException;
 import com.fintracker.ledger.bill.exception.BillNotFoundException;
+import com.fintracker.ledger.budget.exception.HistoricalBudgetException;
+import com.fintracker.ledger.budget.exception.InvalidBudgetException;
+import com.fintracker.ledger.budget.exception.LineItemLimitExceededException;
+import com.fintracker.ledger.shared.exception.ResourceNotFoundException;
 import com.fintracker.ledger.statement.exception.StatementNotFoundException;
 import com.fintracker.ledger.transaction.exception.IllegalStateTransitionException;
 import com.fintracker.ledger.transaction.exception.SplitAmountMismatchException;
@@ -88,12 +91,42 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
-    @ExceptionHandler(PastMonthModificationException.class)
-    public ProblemDetail handlePastMonthModification(PastMonthModificationException ex) {
-        log.warn("Past month modification attempt: {}", ex.getMessage());
-        var detail = ProblemDetail.forStatus(HttpStatus.FORBIDDEN);
-        detail.setType(PROBLEM_BASE.resolve("past-month-read-only"));
-        detail.setTitle("Past Month Is Read-Only");
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ProblemDetail handleResourceNotFound(ResourceNotFoundException ex) {
+        log.warn("Resource not found: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        detail.setType(PROBLEM_BASE.resolve("resource-not-found"));
+        detail.setTitle("Resource Not Found");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(InvalidBudgetException.class)
+    public ProblemDetail handleInvalidBudget(InvalidBudgetException ex) {
+        log.warn("Invalid budget payload: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("invalid-budget"));
+        detail.setTitle("Invalid Budget");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(LineItemLimitExceededException.class)
+    public ProblemDetail handleLineItemLimitExceeded(LineItemLimitExceededException ex) {
+        log.warn("Budget line item limit exceeded: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("line-item-limit-exceeded"));
+        detail.setTitle("Line Item Limit Exceeded");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(HistoricalBudgetException.class)
+    public ProblemDetail handleHistoricalBudget(HistoricalBudgetException ex) {
+        log.warn("Write attempted against a closed budget: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        detail.setType(PROBLEM_BASE.resolve("historical-budget"));
+        detail.setTitle("Budget Is Closed");
         detail.setDetail(ex.getMessage());
         return detail;
     }
