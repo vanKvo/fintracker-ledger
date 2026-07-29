@@ -5,6 +5,7 @@ import com.fintracker.ledger.bill.exception.BillNotFoundException;
 import com.fintracker.ledger.statement.exception.StatementNotFoundException;
 import com.fintracker.ledger.transaction.exception.IllegalStateTransitionException;
 import com.fintracker.ledger.transaction.exception.SplitAmountMismatchException;
+import com.fintracker.ledger.transaction.exception.TooManyTagsException;
 import com.fintracker.ledger.transaction.exception.TransactionNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,12 +78,32 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    @ExceptionHandler(TooManyTagsException.class)
+    public ProblemDetail handleTooManyTags(TooManyTagsException ex) {
+        log.warn("Too many tags: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        detail.setType(PROBLEM_BASE.resolve("too-many-tags"));
+        detail.setTitle("Too Many Tags");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
     @ExceptionHandler(PastMonthModificationException.class)
     public ProblemDetail handlePastMonthModification(PastMonthModificationException ex) {
         log.warn("Past month modification attempt: {}", ex.getMessage());
         var detail = ProblemDetail.forStatus(HttpStatus.FORBIDDEN);
         detail.setType(PROBLEM_BASE.resolve("past-month-read-only"));
         detail.setTitle("Past Month Is Read-Only");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Invalid argument: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("invalid-argument"));
+        detail.setTitle("Invalid Argument");
         detail.setDetail(ex.getMessage());
         return detail;
     }

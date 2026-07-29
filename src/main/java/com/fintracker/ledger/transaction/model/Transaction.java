@@ -25,7 +25,7 @@ public record Transaction(
         boolean isManual,
         OffsetDateTime createdAt
 ) {
-    public enum TransactionSource { STATEMENT_UPLOAD, TELLER_SYNC, MANUAL_ENTRY }
-    public enum TransactionType   { SALE, RETURN }
-    public enum TransactionStatus { PENDING_APPROVAL, POSTED, DELETED }
+    public enum TransactionSource { STATEMENT_UPLOAD, BANK_SYNC, MANUAL_ENTRY }
+    public enum TransactionType   { PURCHASE, CREDIT }
+    public enum TransactionStatus { PENDING, POSTED, DELETED }
 }

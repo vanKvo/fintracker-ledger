@@ -2,6 +2,7 @@ package com.fintracker.ledger.transaction.repository;
 
 import com.fintracker.ledger.transaction.model.Transaction;
 import com.fintracker.ledger.transaction.model.TransactionFilter;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ public class JooqTransactionRepository implements TransactionRepository {
     private static final Logger log = LoggerFactory.getLogger(JooqTransactionRepository.class);
     private static final String SCHEMA   = "ledger";
     private static final String TX_TABLE = "transactions";
+    private static final String SPLIT_CHILD_ALIAS = "split_child";
 
     private final DSLContext dsl;
 
@@ -55,6 +57,7 @@ public class JooqTransactionRepository implements TransactionRepository {
                                 field(name(SCHEMA, TX_TABLE, "tags")),
                                 val(filter.tags().toArray(String[]::new)))
                         : noCondition())
+                .and(isNotSplitParent())
                 .orderBy(field(name(SCHEMA, TX_TABLE, "tx_date")).desc())
                 .limit(filter.size())
                 .offset(filter.page() * filter.size());
@@ -98,6 +101,12 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .set(field("type"), transaction.type().name())
                 .set(field("status"), transaction.status().name())
                 .set(field("is_excluded"), transaction.isExcluded())
+                // is_manual has been a plain DEFAULT FALSE column (not DB-computed) since
+                // V4__Rename_Transaction_Enums_And_Is_Manual_Default.sql — it must be set
+                // explicitly here or every save() (including split children copying a manual
+                // parent's isManual) would silently persist FALSE regardless of the passed-in
+                // Transaction's value.
+                .set(field("is_manual"), transaction.isManual())
                 .execute();
 
         return findByIdInternal(id);
@@ -120,6 +129,14 @@ public class JooqTransactionRepository implements TransactionRepository {
     public void updateCategory(UUID transactionId, String category) {
         dsl.update(table(name(SCHEMA, TX_TABLE)))
                 .set(field("category"), category)
+                .where(field("transaction_id").eq(transactionId))
+                .execute();
+    }
+
+    @Override
+    public void updateAmount(UUID transactionId, BigDecimal amount) {
+        dsl.update(table(name(SCHEMA, TX_TABLE)))
+                .set(field("amount"), amount)
                 .where(field("transaction_id").eq(transactionId))
                 .execute();
     }
@@ -153,7 +170,7 @@ public class JooqTransactionRepository implements TransactionRepository {
         return dsl.selectCount()
                 .from(table(name(SCHEMA, TX_TABLE)))
                 .where(field("statement_id").eq(statementId))
-                .and(field("status").eq(Transaction.TransactionStatus.PENDING_APPROVAL.name()))
+                .and(field("status").eq(Transaction.TransactionStatus.PENDING.name()))
                 .fetchOne(0, int.class);
     }
 
@@ -165,10 +182,11 @@ public class JooqTransactionRepository implements TransactionRepository {
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("RETURN"))
+                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("CREDIT"))
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
+                .and(isNotSplitParent())
                 .fetchOneInto(BigDecimal.class);
     }
 
@@ -180,11 +198,55 @@ public class JooqTransactionRepository implements TransactionRepository {
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("SALE"))
+                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
+                .and(isNotSplitParent())
                 .fetchOneInto(BigDecimal.class);
+    }
+
+    /**
+     * REQ-5.1 "Spend Amount Initialization": the same aggregate as {@link #sumMonthlyExpenses},
+     * narrowed to a single budget line's category. Category comparison is case-insensitive to
+     * match {@link com.fintracker.ledger.transaction.model.TransactionCategory#resolve}, which
+     * canonicalizes on write but tolerates legacy free-text casing already in the column.
+     *
+     * <p>The PURCHASE/POSTED/is_excluded/split-parent predicates are deliberately identical to
+     * {@link #sumMonthlyExpenses} so that the per-category sums of a month reconcile to that
+     * month's total rather than drifting from it.
+     */
+    @Override
+    public BigDecimal sumMonthlyExpensesPerCategory(UUID userId, LocalDate monthStart, LocalDate monthEnd, String category) {
+        return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class).abs()), BigDecimal.ZERO))
+                .from(table(name(SCHEMA, TX_TABLE)))
+                .join(table(name(SCHEMA, "accounts"))).on(
+                        field(name(SCHEMA, TX_TABLE, "account_id"))
+                                .eq(field(name(SCHEMA, "accounts", "account_id"))))
+                .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
+                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
+                .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
+                .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
+                .and(field(name(SCHEMA, TX_TABLE, "category"), String.class).equalIgnoreCase(category))
+                .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
+                .and(isNotSplitParent())
+                .fetchOneInto(BigDecimal.class);
+    }
+
+    /**
+     * REQ-2.2 "Transaction Splitting": "the parent transaction must be dynamically hidden from
+     * active views (WHERE NOT EXISTS) the moment child rows are written." Once a transaction has
+     * been split, its children are what should count in listings/aggregates — without this, the
+     * same money is counted once via the parent and again via its children the moment both end up
+     * POSTED (nothing currently stops the parent from being approved independently of its children).
+     */
+    private Condition isNotSplitParent() {
+        return notExists(
+                select(val(1))
+                        .from(table(name(SCHEMA, TX_TABLE)).as(SPLIT_CHILD_ALIAS))
+                        .where(field(name(SPLIT_CHILD_ALIAS, "parent_transaction_id"))
+                                .eq(field(name(SCHEMA, TX_TABLE, "transaction_id"))))
+        );
     }
 
     private Transaction mapToTransaction(org.jooq.Record record) {

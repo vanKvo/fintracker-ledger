@@ -1,14 +1,19 @@
 package com.fintracker.ledger.transaction.controller;
 
+import com.fintracker.ledger.transaction.dto.AppendTagsRequest;
 import com.fintracker.ledger.transaction.dto.BulkActionRequest;
+import com.fintracker.ledger.transaction.dto.ManualTransactionRequest;
 import com.fintracker.ledger.transaction.dto.SplitTransactionRequest;
+import com.fintracker.ledger.transaction.dto.UpdateTransactionRequest;
 import com.fintracker.ledger.transaction.model.Transaction;
+import com.fintracker.ledger.transaction.model.TransactionCategory;
 import com.fintracker.ledger.transaction.model.TransactionFilter;
 import com.fintracker.ledger.transaction.service.TransactionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,6 +29,16 @@ public class TransactionController {
 
     public TransactionController(TransactionService transactionService) {
         this.transactionService = transactionService;
+    }
+
+    /**
+     * REQ-2.2 "Inline Row Modification" business constraint: exposes the system-defined category
+     * drop-down list (see {@link TransactionCategory}) so the UI never has to invent its own set
+     * by sampling whatever categories happen to already be on loaded transactions.
+     */
+    @GetMapping("/categories")
+    public ResponseEntity<List<String>> getCategories() {
+        return ResponseEntity.ok(TransactionCategory.LABELS);
     }
 
     @GetMapping
@@ -44,10 +59,38 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getTransactions(filter));
     }
 
+    /**
+     * REQ-2.3.1 "Manual Row Insertion". source/isManual/status are fixed server-side —
+     * see TransactionServiceImpl.createManualTransaction.
+     */
+    @PostMapping
+    public ResponseEntity<Transaction> createManualTransaction(
+            @Valid @RequestBody ManualTransactionRequest request,
+            @RequestAttribute("userId") UUID userId) {
+        var created = transactionService.createManualTransaction(request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
     @PutMapping("/{id}/approve")
     public ResponseEntity<Void> approveTransaction(@PathVariable UUID id,
                                                    @RequestAttribute("userId") UUID userId) {
         transactionService.approveTransaction(id, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<Void> updateTransaction(@PathVariable UUID id,
+                                                  @Valid @RequestBody UpdateTransactionRequest request,
+                                                  @RequestAttribute("userId") UUID userId) {
+        if (request.category() == null && request.amount() == null) {
+            throw new IllegalArgumentException("At least one of category or amount must be provided.");
+        }
+        if (request.category() != null) {
+            transactionService.updateCategory(id, request.category(), userId);
+        }
+        if (request.amount() != null) {
+            transactionService.updateAmount(id, request.amount(), userId);
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -69,6 +112,14 @@ public class TransactionController {
                 .map(s -> new TransactionService.SplitRequest(s.amount(), s.category()))
                 .toList();
         return ResponseEntity.ok(transactionService.splitTransaction(id, splitRequests, userId));
+    }
+
+    @PatchMapping("/{id}/tags")
+    public ResponseEntity<Void> appendTags(@PathVariable UUID id,
+                                           @Valid @RequestBody AppendTagsRequest request,
+                                           @RequestAttribute("userId") UUID userId) {
+        transactionService.appendTags(id, request.tags(), userId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/bulk")

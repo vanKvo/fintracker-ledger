@@ -23,6 +23,8 @@ public interface TransactionRepository {
 
     void updateCategory(UUID transactionId, String category);
 
+    void updateAmount(UUID transactionId, BigDecimal amount);
+
     void appendTags(UUID transactionId, List<String> newTags);
 
     void toggleExcluded(UUID transactionId, boolean isExcluded);
@@ -34,4 +36,6 @@ public interface TransactionRepository {
     BigDecimal sumMonthlyIncome(UUID userId, LocalDate monthStart, LocalDate monthEnd);
 
     BigDecimal sumMonthlyExpenses(UUID userId, LocalDate monthStart, LocalDate monthEnd);
+
+    BigDecimal sumMonthlyExpensesPerCategory(UUID userId, LocalDate monthStart, LocalDate monthEnd, String category);
 }
