@@ -60,9 +60,9 @@ class BillServiceTest {
         var bill = new UpcomingBillDto(billId, userId, "Internet", new BigDecimal("79.99"),
                 15, "monthly", "utilities", UpcomingBillDto.BillStatus.ACTIVE, java.time.OffsetDateTime.now());
 
-        when(billRepository.findById(billId)).thenReturn(Optional.of(bill));
+        when(billRepository.findByIdAndUserId(billId, userId)).thenReturn(Optional.of(bill));
 
-        billService.markBillAsPaid(billId, transactionId);
+        billService.markBillAsPaid(billId, transactionId, userId);
 
         verify(billRepository).recordPayment(eq(billId), any(LocalDate.class), eq(transactionId));
     }
@@ -71,11 +71,12 @@ class BillServiceTest {
     @DisplayName("markBillAsPaid should throw BillNotFoundException when bill does not exist")
     void shouldThrowWhenBillNotFound() {
         var billId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
         var transactionId = UUID.randomUUID();
 
-        when(billRepository.findById(billId)).thenReturn(Optional.empty());
+        when(billRepository.findByIdAndUserId(billId, userId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> billService.markBillAsPaid(billId, transactionId))
+        assertThatThrownBy(() -> billService.markBillAsPaid(billId, transactionId, userId))
                 .isInstanceOf(BillNotFoundException.class)
                 .hasMessageContaining("Upcoming bill not found");
 
