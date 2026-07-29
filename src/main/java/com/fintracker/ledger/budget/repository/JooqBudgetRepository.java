@@ -2,6 +2,7 @@ package com.fintracker.ledger.budget.repository;
 
 import com.fintracker.ledger.budget.model.Budget;
 import com.fintracker.ledger.budget.model.BudgetLine;
+import com.fintracker.ledger.budget.model.BudgetStatus;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -34,6 +35,9 @@ public class JooqBudgetRepository implements BudgetRepository {
                     return new Budget(budgetId, r.get("user_id", UUID.class),
                             r.get("effective_month", LocalDate.class),
                             r.get("version", Integer.class),
+                            // STUB: ledger.budgets has no status column yet (REQ-5.1 Data Impacts
+                            // requires the migration). Hardcoded so the module compiles.
+                            BudgetStatus.ACTIVE,
                             r.get("description", String.class),
                             fetchLines(budgetId),
                             r.get("created_at", OffsetDateTime.class));
@@ -51,6 +55,9 @@ public class JooqBudgetRepository implements BudgetRepository {
                     return new Budget(budgetId, r.get("user_id", UUID.class),
                             r.get("effective_month", LocalDate.class),
                             r.get("version", Integer.class),
+                            // STUB: ledger.budgets has no status column yet (REQ-5.1 Data Impacts
+                            // requires the migration). Hardcoded so the module compiles.
+                            BudgetStatus.ACTIVE,
                             r.get("description", String.class),
                             fetchLines(budgetId),
                             r.get("created_at", OffsetDateTime.class));

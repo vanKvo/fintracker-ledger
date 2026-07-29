@@ -38,6 +38,7 @@ public class BudgetController {
         var lines = request.lines().stream()
                 .map(l -> new BudgetLine(null, null, l.category(), l.limitAmount(), null, null))
                 .toList();
-        return ResponseEntity.ok(budgetService.upsertBudget(userId, request.effectiveMonth(), lines));
+        // STUB: templateId is not yet exposed on UpsertBudgetRequest (REQ-5.1 Template Inheritance).
+        return ResponseEntity.ok(budgetService.upsertBudget(userId, request.effectiveMonth(), null, lines));
     }
 }
