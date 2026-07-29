@@ -33,7 +33,20 @@ public class RlsExecuteListener extends DefaultExecuteListener {
         if (userId == null || ctx.connection() == null) {
             return;
         }
-        try (var stmt = ctx.connection().prepareStatement("SET app.current_user_id = ?")) {
+        // Postgres's SET command does not accept bind parameters ("SET x = $1" is a syntax error —
+        // SET is a utility statement, not a parameterizable query). set_config(...) is a regular
+        // function call and does accept them; is_local=false matches SET's session-wide scope
+        // (paired with the plain RESET below, not transaction-scoped SET LOCAL semantics).
+        //
+        // Deliberately NOT closed here (no try-with-resources). ctx.connection() is the same
+        // connection jOOQ is about to reuse for the actual query. Outside an active Spring
+        // transaction, Spring's TransactionAwareDataSourceProxy treats closing any resource derived
+        // from that connection as "done with it" and immediately returns the physical connection to
+        // the HikariCP pool — leaving jOOQ's next statement on the same connection object failing
+        // with "Connection is closed". The statement/result set are cleaned up when the connection
+        // itself is eventually closed at the end of jOOQ's own lifecycle.
+        try {
+            var stmt = ctx.connection().prepareStatement("SELECT set_config('app.current_user_id', ?, false)");
             stmt.setString(1, userId.toString());
             stmt.execute();
         } catch (SQLException e) {
@@ -46,9 +59,12 @@ public class RlsExecuteListener extends DefaultExecuteListener {
         if (ctx.connection() == null) {
             return;
         }
-        // Reset so pooled connections never leak one user's identity to the next request.
-        try (var stmt = ctx.connection().createStatement()) {
-            stmt.execute("RESET app.current_user_id");
+        // Reset so pooled connections never leak one user's identity to the next request. Same
+        // "don't close what you didn't open" reasoning as start() above — this runs at the true end
+        // of the query lifecycle, but closing it here would still prematurely release the connection
+        // jOOQ itself is about to return to the pool through its own path.
+        try {
+            ctx.connection().createStatement().execute("RESET app.current_user_id");
         } catch (SQLException ignored) {}
     }
 }
