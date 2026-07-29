@@ -10,6 +10,7 @@ public record Budget(
         UUID userId,
         LocalDate effectiveMonth,
         int version,
+        BudgetStatus status,
         String description,
         List<BudgetLine> lines,
         OffsetDateTime createdAt

@@ -3,6 +3,7 @@ package com.fintracker.ledger.budget.service.impl;
 import com.fintracker.ledger.budget.exception.PastMonthModificationException;
 import com.fintracker.ledger.budget.model.Budget;
 import com.fintracker.ledger.budget.model.BudgetLine;
+import com.fintracker.ledger.budget.model.BudgetStatus;
 import com.fintracker.ledger.budget.repository.BudgetRepository;
 import com.fintracker.ledger.budget.service.BudgetService;
 import com.fintracker.ledger.transaction.service.TransactionService;
@@ -52,7 +53,7 @@ public class BudgetServiceImpl implements BudgetService {
     }
 
     @Override
-    public Budget upsertBudget(UUID userId, LocalDate effectiveMonth, List<BudgetLine> lines) {
+    public Budget upsertBudget(UUID userId, LocalDate effectiveMonth, UUID templateId, List<BudgetLine> lines) {
         LocalDate normalizedMonth = effectiveMonth.withDayOfMonth(1);
 
         if (normalizedMonth.isBefore(currentMonth())) {
@@ -66,10 +67,25 @@ public class BudgetServiceImpl implements BudgetService {
             return getBudgetForMonth(userId, normalizedMonth);
         }
 
-        var newBudget = new Budget(null, userId, normalizedMonth, 1, null, lines, null);
+        var newBudget = new Budget(null, userId, normalizedMonth, 1, BudgetStatus.ACTIVE, null, lines, null);
         var saved = budgetRepository.save(newBudget);
         log.info("Created new budget budgetId={} month={}", saved.budgetId(), normalizedMonth);
         return enrichWithSpending(saved, userId, normalizedMonth);
+    }
+
+    @Override
+    public Budget reopenBudget(UUID userId, UUID budgetId) {
+        throw new UnsupportedOperationException("REQ-5.1 reopenBudget is not implemented yet.");
+    }
+
+    @Override
+    public Budget closeBudget(UUID userId, UUID budgetId) {
+        throw new UnsupportedOperationException("REQ-5.1 closeBudget is not implemented yet.");
+    }
+
+    @Override
+    public int closePastBudgets(LocalDate cutoffDate) {
+        throw new UnsupportedOperationException("REQ-5.1 closePastBudgets is not implemented yet.");
     }
 
     private Budget enrichWithSpending(Budget budget, UUID userId, LocalDate month) {
@@ -83,7 +99,7 @@ public class BudgetServiceImpl implements BudgetService {
                 .toList();
 
         return new Budget(budget.budgetId(), budget.userId(), budget.effectiveMonth(),
-                budget.version(), budget.description(), enrichedLines, budget.createdAt());
+                budget.version(), budget.status(), budget.description(), enrichedLines, budget.createdAt());
     }
 
     private Budget createBaseTemplate(UUID userId, LocalDate newMonth) {
@@ -93,8 +109,9 @@ public class BudgetServiceImpl implements BudgetService {
                     var templateLines = previous.lines().stream()
                             .map(l -> new BudgetLine(null, null, l.category(), l.limitAmount(), l.description(), BigDecimal.ZERO))
                             .toList();
-                    return budgetRepository.save(new Budget(null, userId, newMonth, 1, null, templateLines, null));
+                    return budgetRepository.save(
+                            new Budget(null, userId, newMonth, 1, BudgetStatus.ACTIVE, null, templateLines, null));
                 })
-                .orElse(new Budget(null, userId, newMonth, 1, null, List.of(), null));
+                .orElse(new Budget(null, userId, newMonth, 1, BudgetStatus.ACTIVE, null, List.of(), null));
     }
 }
