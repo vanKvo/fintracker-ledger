@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -172,5 +173,103 @@ public class JooqBudgetRepository implements BudgetRepository {
                         r.get("description", String.class),
                         BigDecimal.ZERO
                 ));
+    }
+
+    // ------------------------------------------------------- REQ-5.2 line-item operations
+
+    @Override
+    public Optional<BudgetLine> findLineById(UUID budgetId, UUID lineId) {
+        return dsl.selectFrom(table(name(SCHEMA, BUDGET_LINES)))
+                .where(field("line_id").eq(lineId).and(field("budget_id").eq(budgetId)))
+                .fetchOptional(r -> new BudgetLine(
+                        r.get("line_id", UUID.class),
+                        r.get("budget_id", UUID.class),
+                        r.get("category", String.class),
+                        r.get("limit_amount", BigDecimal.class),
+                        r.get("description", String.class),
+                        BigDecimal.ZERO
+                ));
+    }
+
+    @Override
+    public int countLines(UUID budgetId) {
+        return dsl.selectCount()
+                .from(table(name(SCHEMA, BUDGET_LINES)))
+                .where(field("budget_id").eq(budgetId))
+                .fetchOne(0, int.class);
+    }
+
+    @Override
+    public boolean existsCategoryIgnoreCase(UUID budgetId, String category, UUID excludeLineId) {
+        Condition condition = field("budget_id").eq(budgetId)
+                .and(lower(field("category", String.class)).eq(category.toLowerCase(Locale.ROOT)));
+        if (excludeLineId != null) {
+            condition = condition.and(field("line_id").ne(excludeLineId));
+        }
+        return dsl.fetchExists(dsl.selectOne()
+                .from(table(name(SCHEMA, BUDGET_LINES)))
+                .where(condition));
+    }
+
+    @Override
+    public BudgetLine insertLine(UUID budgetId, BudgetLine line) {
+        var lineId = UUID.randomUUID();
+        // Insert + version bump must be atomic: a failure after the insert would otherwise leave
+        // the budget's version stale relative to its actual line contents.
+        dsl.transaction(cfg -> {
+            var tx = cfg.dsl();
+            tx.insertInto(table(name(SCHEMA, BUDGET_LINES)))
+                    .set(field("line_id"), lineId)
+                    .set(field("budget_id"), budgetId)
+                    .set(field("category"), line.category())
+                    .set(field("limit_amount"), line.limitAmount())
+                    .set(field("description"), line.description())
+                    .execute();
+            bumpVersion(tx, budgetId);
+        });
+        return new BudgetLine(lineId, budgetId, line.category(), line.limitAmount(),
+                line.description(), BigDecimal.ZERO);
+    }
+
+    @Override
+    public void updateLineLimit(UUID lineId, BigDecimal newLimitAmount) {
+        dsl.transaction(cfg -> {
+            var tx = cfg.dsl();
+            var budgetId = tx.select(field("budget_id", UUID.class))
+                    .from(table(name(SCHEMA, BUDGET_LINES)))
+                    .where(field("line_id").eq(lineId))
+                    .fetchOne(field("budget_id", UUID.class));
+            tx.update(table(name(SCHEMA, BUDGET_LINES)))
+                    .set(field("limit_amount"), newLimitAmount)
+                    .where(field("line_id").eq(lineId))
+                    .execute();
+            if (budgetId != null) {
+                bumpVersion(tx, budgetId);
+            }
+        });
+    }
+
+    @Override
+    public void deleteLine(UUID lineId) {
+        dsl.transaction(cfg -> {
+            var tx = cfg.dsl();
+            var budgetId = tx.select(field("budget_id", UUID.class))
+                    .from(table(name(SCHEMA, BUDGET_LINES)))
+                    .where(field("line_id").eq(lineId))
+                    .fetchOne(field("budget_id", UUID.class));
+            tx.deleteFrom(table(name(SCHEMA, BUDGET_LINES)))
+                    .where(field("line_id").eq(lineId))
+                    .execute();
+            if (budgetId != null) {
+                bumpVersion(tx, budgetId);
+            }
+        });
+    }
+
+    private void bumpVersion(DSLContext ctx, UUID budgetId) {
+        ctx.update(table(name(SCHEMA, BUDGETS)))
+                .set(field("version", Integer.class), field("version", Integer.class).plus(1))
+                .where(field("budget_id").eq(budgetId))
+                .execute();
     }
 }

@@ -4,6 +4,7 @@ import com.fintracker.ledger.budget.model.Budget;
 import com.fintracker.ledger.budget.model.BudgetLine;
 import com.fintracker.ledger.budget.model.BudgetStatus;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -49,4 +50,28 @@ public interface BudgetRepository {
      * @return the number of budgets transitioned to CLOSED.
      */
     int closeAllBefore(LocalDate cutoffDate);
+
+    // ------------------------------------------------------- REQ-5.2 line-item operations
+
+    /** A single line item, scoped to the budget it must belong to. */
+    Optional<BudgetLine> findLineById(UUID budgetId, UUID lineId);
+
+    /** Current number of line items on the budget — REQ-5.2 "Line Item Ceiling" (max 50). */
+    int countLines(UUID budgetId);
+
+    /**
+     * REQ-5.2 "Category Uniqueness": whether {@code category} already exists on the budget,
+     * compared case-insensitively. {@code excludeLineId}, when non-null, excludes that line from
+     * the check (a line being renamed does not conflict with itself).
+     */
+    boolean existsCategoryIgnoreCase(UUID budgetId, String category, UUID excludeLineId);
+
+    /** Inserts a single new line item and bumps the parent budget's version. */
+    BudgetLine insertLine(UUID budgetId, BudgetLine line);
+
+    /** Updates one line item's limitAmount and bumps the parent budget's version. */
+    void updateLineLimit(UUID lineId, BigDecimal newLimitAmount);
+
+    /** Deletes one line item and bumps the parent budget's version. */
+    void deleteLine(UUID lineId);
 }

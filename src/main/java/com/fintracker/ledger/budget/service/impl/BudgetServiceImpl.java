@@ -8,6 +8,7 @@ import com.fintracker.ledger.budget.model.BudgetLine;
 import com.fintracker.ledger.budget.model.BudgetStatus;
 import com.fintracker.ledger.budget.repository.BudgetRepository;
 import com.fintracker.ledger.budget.service.BudgetService;
+import com.fintracker.ledger.budget.validation.BudgetMonetaryPolicy;
 import com.fintracker.ledger.shared.exception.ResourceNotFoundException;
 import com.fintracker.ledger.transaction.service.TransactionService;
 import org.slf4j.Logger;
@@ -28,13 +29,6 @@ import java.util.UUID;
 public class BudgetServiceImpl implements BudgetService {
 
     private static final Logger log = LoggerFactory.getLogger(BudgetServiceImpl.class);
-
-    /** REQ-5.1 Constraints: inclusive bounds for every line's limitAmount. */
-    private static final BigDecimal MIN_LIMIT_AMOUNT = new BigDecimal("0.00");
-    private static final BigDecimal MAX_LIMIT_AMOUNT = new BigDecimal("999999999.99");
-
-    /** REQ-5.1 Constraints: monetary amounts carry at most 2 decimal places (cents). */
-    private static final int MAX_MONETARY_SCALE = 2;
 
     private final BudgetRepository budgetRepository;
     private final TransactionService transactionService;
@@ -248,25 +242,7 @@ public class BudgetServiceImpl implements BudgetService {
     }
 
     private void validateLimitAmount(String category, BigDecimal limitAmount) {
-        if (limitAmount == null) {
-            throw new InvalidBudgetException(
-                    "Category '%s' requires a limitAmount.".formatted(category));
-        }
-        // Deliberately the literal scale of the payload value, NOT stripTrailingZeros(): a client
-        // sending "100.000" wrote 3 decimal places and must be rejected, even though the trailing
-        // zeros are numerically insignificant (stripping would also collapse "100.000" to 1E+2,
-        // scale -2, masking the violation entirely). Amounts are never silently rounded.
-        if (limitAmount.scale() > MAX_MONETARY_SCALE) {
-            throw new InvalidBudgetException(
-                    "Category '%s' has limitAmount %s with more than 2 decimal places; amounts are not rounded."
-                            .formatted(category, limitAmount.toPlainString()));
-        }
-        if (limitAmount.compareTo(MIN_LIMIT_AMOUNT) < 0 || limitAmount.compareTo(MAX_LIMIT_AMOUNT) > 0) {
-            throw new InvalidBudgetException(
-                    "Category '%s' has limitAmount %s outside the allowed range [%s, %s]."
-                            .formatted(category, limitAmount.toPlainString(),
-                                    MIN_LIMIT_AMOUNT.toPlainString(), MAX_LIMIT_AMOUNT.toPlainString()));
-        }
+        BudgetMonetaryPolicy.validate(category, limitAmount);
     }
 
     /**

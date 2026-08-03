@@ -1,6 +1,7 @@
 package com.fintracker.ledger.config;
 
 import com.fintracker.ledger.bill.exception.BillNotFoundException;
+import com.fintracker.ledger.budget.exception.DuplicateCategoryException;
 import com.fintracker.ledger.budget.exception.HistoricalBudgetException;
 import com.fintracker.ledger.budget.exception.InvalidBudgetException;
 import com.fintracker.ledger.budget.exception.LineItemLimitExceededException;
@@ -117,6 +118,16 @@ public class GlobalExceptionHandler {
         var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
         detail.setType(PROBLEM_BASE.resolve("line-item-limit-exceeded"));
         detail.setTitle("Line Item Limit Exceeded");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(DuplicateCategoryException.class)
+    public ProblemDetail handleDuplicateCategory(DuplicateCategoryException ex) {
+        log.warn("Duplicate budget line category: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        detail.setType(PROBLEM_BASE.resolve("duplicate-category"));
+        detail.setTitle("Duplicate Category");
         detail.setDetail(ex.getMessage());
         return detail;
     }

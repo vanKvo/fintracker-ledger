@@ -1,6 +1,7 @@
 package com.fintracker.ledger.budget;
 
 import com.fintracker.ledger.budget.model.BudgetLine;
+import com.fintracker.ledger.budget.service.BudgetLineService;
 import com.fintracker.ledger.budget.service.BudgetService;
 import com.fintracker.ledger.shared.UserContextHolder;
 import com.fintracker.ledger.testsupport.AbstractIntegrationTest;
@@ -43,6 +44,9 @@ public abstract class AbstractBudgetIT extends AbstractIntegrationTest {
 
     @Autowired
     protected BudgetService budgetService;
+
+    @Autowired
+    protected BudgetLineService budgetLineService;
 
     @Autowired
     protected MutableTestClock clock;
