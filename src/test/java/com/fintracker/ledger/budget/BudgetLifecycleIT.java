@@ -189,14 +189,28 @@ class BudgetLifecycleIT extends AbstractBudgetIT {
     }
 
     // REQ-5.1 Automated Period Closure — the returned count is the number actually transitioned.
+    //
+    // Asserted as a delta against countActiveBudgetsBefore(), not a bare "== 2": closePastBudgets
+    // is a system-wide, cross-tenant scan by design (see BudgetTenancyIT.closePastBudgetsSpansAllUsers),
+    // and every budget IT class shares one Testcontainers Postgres for the whole suite run
+    // (AbstractIntegrationTest's singleton container, never truncated between classes). Other
+    // tests elsewhere in the suite legitimately leave their own ACTIVE, past-dated budgets lying
+    // around — a bare "== 2" would count those too and fail depending on run order/composition.
     @Test
     @DisplayName("closePastBudgets returns the number of budgets it transitioned")
     void closePastBudgetsReturnsTransitionCount() {
+        int alreadyStale = countActiveBudgetsBefore(currentMonth());
+
         budgetService.upsertBudget(userId, currentMonth().minusMonths(1), null, List.of(line("A", "1.00")));
         budgetService.upsertBudget(userId, currentMonth().minusMonths(2), null, List.of(line("A", "1.00")));
         budgetService.upsertBudget(userId, currentMonth(), null, List.of(line("A", "1.00")));
 
-        assertThat(budgetService.closePastBudgets(currentMonth())).isEqualTo(2);
+        int transitioned = budgetService.closePastBudgets(currentMonth());
+
+        assertThat(transitioned - alreadyStale)
+                .as("this test's own 2 elapsed budgets, independent of any stray ACTIVE/past rows "
+                        + "left behind by other tests sharing this suite's Testcontainers Postgres")
+                .isEqualTo(2);
     }
 
     // REQ-5.1 Automated Period Closure — the scheduler fires every month and may be retried;

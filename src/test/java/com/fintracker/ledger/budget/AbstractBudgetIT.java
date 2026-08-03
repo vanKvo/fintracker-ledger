@@ -147,6 +147,20 @@ public abstract class AbstractBudgetIT extends AbstractIntegrationTest {
     }
 
     /**
+     * System-wide count, deliberately not scoped to a single tenant — matches exactly what
+     * {@code closePastBudgets} itself scans (REQ-5.1 "Automated Period Closure" has no user
+     * context). Lets a test assert the closure count it caused as a delta against whatever ACTIVE
+     * past-cutoff rows other tests already left behind in this suite's shared Testcontainers
+     * Postgres, rather than assuming a pristine database.
+     */
+    protected int countActiveBudgetsBefore(LocalDate cutoff) {
+        var rows = queryAsSuperuser(
+                "SELECT COUNT(*) AS c FROM ledger.budgets WHERE status = 'ACTIVE' AND effective_month < ?",
+                cutoff);
+        return ((Number) rows.get(0).get("c")).intValue();
+    }
+
+    /**
      * Reads {@code ledger.budgets.status} directly. Until the REQ-5.1 migration adds the column
      * this throws {@code column "status" does not exist} — which is the point: the column is part
      * of the requirement (REQ-5.1 C. Data Impacts), not an assumption of the test harness.
