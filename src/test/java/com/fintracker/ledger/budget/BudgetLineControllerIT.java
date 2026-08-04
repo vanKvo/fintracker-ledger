@@ -168,4 +168,68 @@ class BudgetLineControllerIT extends AbstractBudgetIT {
                         .header(IDENTITY_HEADER, userId))
                 .andExpect(status().isUnprocessableEntity());
     }
+
+    // REQ-5.2 Error Mapping: "404 NOT FOUND — lineId not found" applies to removal too.
+    @Test
+    @DisplayName("DELETE /lines/{lineId} against an unknown line responds 404 Not Found")
+    void removingAnUnknownLineResponds404() throws Exception {
+        var budget = budgetService.upsertBudget(userId, currentMonth(), null, List.of());
+
+        mockMvc.perform(delete(linesUrl(budget.budgetId()) + "/" + UUID.randomUUID())
+                        .header(IDENTITY_HEADER, userId))
+                .andExpect(status().isNotFound());
+    }
+
+    // REQ-5.2 Error Mapping: "422 UNPROCESSABLE ENTITY — budget status is CLOSED" applies to the
+    // update-limit path too, not only add/remove.
+    @Test
+    @DisplayName("PUT /lines/{lineId} on a CLOSED budget responds 422 Unprocessable Entity")
+    void updatingALineOnAClosedBudgetResponds422() throws Exception {
+        var budget = budgetService.upsertBudget(userId, currentMonth(), null, List.of(line("Groceries", "500.00")));
+        var lineId = budget.lines().get(0).lineId();
+        budgetService.closeBudget(userId, budget.budgetId());
+
+        mockMvc.perform(put(linesUrl(budget.budgetId()) + "/" + lineId)
+                        .header(IDENTITY_HEADER, userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"limitAmount": 650.00}
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    // REQ-5.2 Error Mapping: "400 BAD REQUEST — InvalidBudgetException" applies to the
+    // update-limit path too.
+    @Test
+    @DisplayName("PUT /lines/{lineId} with an out-of-range limitAmount responds 400 Bad Request")
+    void updatingToAnOutOfRangeLimitResponds400() throws Exception {
+        var budget = budgetService.upsertBudget(userId, currentMonth(), null, List.of(line("Groceries", "500.00")));
+        var lineId = budget.lines().get(0).lineId();
+
+        mockMvc.perform(put(linesUrl(budget.budgetId()) + "/" + lineId)
+                        .header(IDENTITY_HEADER, userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"limitAmount": 1000000000.00}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
+    }
+
+    // REQ-5.2 Constraints: "Non-Empty Category Name" maps to the same 400 InvalidBudgetException
+    // path as the monetary constraints.
+    @Test
+    @DisplayName("POST /lines with a blank category responds 400 Bad Request")
+    void addingALineWithBlankCategoryResponds400() throws Exception {
+        var budget = budgetService.upsertBudget(userId, currentMonth(), null, List.of());
+
+        mockMvc.perform(post(linesUrl(budget.budgetId()))
+                        .header(IDENTITY_HEADER, userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"category": "   ", "limitAmount": 100.00}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
 }
