@@ -12,7 +12,10 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -231,6 +234,48 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
                 .and(isNotSplitParent())
                 .fetchOneInto(BigDecimal.class);
+    }
+
+    @Override
+    public Map<LocalDate, Map<String, BigDecimal>> sumExpensesByMonthAndCategory(
+            UUID userId, LocalDate rangeStart, LocalDate rangeEnd) {
+
+        // jOOQ bound template for date_trunc: safe parameter binding without raw string concatenation.
+        var monthStart = field("date_trunc('month', {0})::date", LocalDate.class,
+                field(name(SCHEMA, TX_TABLE, "tx_date")));
+        var categoryKey = lower(field(name(SCHEMA, TX_TABLE, "category"), String.class));
+        var total = sum(field(name(SCHEMA, TX_TABLE, "amount"), BigDecimal.class).abs());
+
+        // // Single annual aggregate. Filters strictly match sumMonthlyExpensesPerCategory 
+        // so monthly and yearly spending totals are always consistent.
+        var rows = dsl.select(monthStart, categoryKey, total)
+                .from(table(name(SCHEMA, TX_TABLE)))
+                .join(table(name(SCHEMA, "accounts"))).on(
+                        field(name(SCHEMA, TX_TABLE, "account_id"))
+                                .eq(field(name(SCHEMA, "accounts", "account_id"))))
+                .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
+                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
+                .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
+                .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
+                .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(rangeStart).and(rangeEnd))
+                .and(isNotSplitParent())
+                .groupBy(monthStart, categoryKey)
+                .fetch();
+
+        Map<LocalDate, Map<String, BigDecimal>> byMonth = new HashMap<>();
+        for (var row : rows) {
+            var month = row.get(monthStart);
+            var category = row.get(categoryKey);
+            var amount = row.get(total);
+            if (month == null || category == null) {
+                continue;
+            }
+            byMonth.computeIfAbsent(month, m -> new HashMap<>())
+                    .merge(category.toLowerCase(Locale.ROOT),
+                            amount == null ? BigDecimal.ZERO : amount,
+                            BigDecimal::add);
+        }
+        return byMonth;
     }
 
     /**

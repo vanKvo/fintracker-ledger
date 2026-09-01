@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -226,6 +227,12 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     public BigDecimal sumMonthlyExpensesPerCategory(UUID userId, LocalDate start, LocalDate end, String category) {
         return transactionRepository.sumMonthlyExpensesPerCategory(userId, start, end, category);
+    }
+
+    @Override
+    public Map<LocalDate, Map<String, BigDecimal>> sumExpensesByMonthAndCategory(
+            UUID userId, LocalDate start, LocalDate end) {
+        return transactionRepository.sumExpensesByMonthAndCategory(userId, start, end);
     }
 
     private Transaction buildChildTransaction(Transaction parent, SplitRequest split) {

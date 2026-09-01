@@ -21,6 +21,12 @@ spring:
     schemas: ledger
     locations: classpath:db/migration
 
+aws:
+  region: ${AWS_REGION:us-east-1}
+  s3:
+    statements-bucket: ${STATEMENTS_BUCKET_NAME}
+    presigned-url-expiry-minutes: 15
+
 server:
   port: 8081
   error:

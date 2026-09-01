@@ -7,6 +7,7 @@ import com.fintracker.ledger.transaction.model.TransactionFilter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface TransactionService {
@@ -58,6 +59,21 @@ public interface TransactionService {
      * nothing matches.
      */
     BigDecimal sumMonthlyExpensesPerCategory(UUID userId, LocalDate start, LocalDate end, String category);
+
+    /**
+     * REQ-5.1 A.2 "Spend Enrichment". The batched form of
+     * {@link #sumMonthlyExpensesPerCategory}: approved expenses across [start, end], pre-grouped
+     * by calendar month and lower-cased category, in a single aggregate.
+     *
+     * <p>Enriching a year of budgets one line at a time would issue up to 600 queries (12 months
+     * x 50 lines). This keeps the cost of a year listing at one query regardless of how many
+     * budgets or lines it spans.
+     *
+     * @return month-start date → lower-cased category → summed amount; absent entries mean no
+     *         approved spending, never null.
+     */
+    Map<LocalDate, Map<String, BigDecimal>> sumExpensesByMonthAndCategory(
+            UUID userId, LocalDate start, LocalDate end);
 
     record SplitRequest(BigDecimal amount, String category) {}
 }

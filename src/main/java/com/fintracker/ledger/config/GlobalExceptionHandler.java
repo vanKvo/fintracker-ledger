@@ -2,6 +2,7 @@ package com.fintracker.ledger.config;
 
 import com.fintracker.ledger.bill.exception.BillNotFoundException;
 import com.fintracker.ledger.budget.exception.DuplicateCategoryException;
+import com.fintracker.ledger.budget.exception.DuplicateTemplateException;
 import com.fintracker.ledger.budget.exception.HistoricalBudgetException;
 import com.fintracker.ledger.budget.exception.InvalidBudgetException;
 import com.fintracker.ledger.budget.exception.LineItemLimitExceededException;
@@ -16,7 +17,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.net.URI;
@@ -132,6 +138,16 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    @ExceptionHandler(DuplicateTemplateException.class)
+    public ProblemDetail handleDuplicateTemplate(DuplicateTemplateException ex) {
+        log.warn("Duplicate budget template name: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        detail.setType(PROBLEM_BASE.resolve("duplicate-template"));
+        detail.setTitle("Duplicate Template Name");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
     @ExceptionHandler(HistoricalBudgetException.class)
     public ProblemDetail handleHistoricalBudget(HistoricalBudgetException ex) {
         log.warn("Write attempted against a closed budget: {}", ex.getMessage());
@@ -152,6 +168,30 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    /**
+     * A request parameter or path variable that cannot be converted to its declared type —
+     * {@code ?year=not-a-year}, {@code ?month=13-13-13}, a malformed UUID in a path.
+     *
+     * <p>Without this handler such requests fall through to {@link #handleUnexpected} and are
+     * reported as 500, which tells the client the server is broken when in fact their input was.
+     * It also turns a routine client mistake into a page-worthy error-rate signal.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("Malformed request parameter '{}'", ex.getName());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("invalid-parameter"));
+        detail.setTitle("Invalid Parameter");
+        // The rejected value is the client's own input, echoed back so they can see what was
+        // rejected; the underlying conversion exception is not surfaced, as its message can
+        // expose internal type names.
+        detail.setDetail("Parameter '%s' is not a valid %s.".formatted(
+                ex.getName(),
+                ex.getRequiredType() == null ? "value" : ex.getRequiredType().getSimpleName()));
+        detail.setProperty("parameter", ex.getName());
+        return detail;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
         log.warn("Input validation failed: {} error(s)", ex.getBindingResult().getErrorCount());
@@ -162,6 +202,67 @@ public class GlobalExceptionHandler {
         detail.setProperty("errors", ex.getBindingResult().getFieldErrors().stream()
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .toList());
+        return detail;
+    }
+
+    // ── Framework-level client errors ───────────────────────────────────────────
+    //
+    // Spring raises these before any controller runs. Without explicit handlers they fall through
+    // to handleUnexpected and are reported as 500 — a client typo, a wrong verb or a stale client
+    // calling a route that no longer exists all masquerade as a server fault. In an API that is
+    // monitored on 5xx rate that is both a false alarm and a misleading answer to the caller.
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNoResourceFound(NoResourceFoundException ex) {
+        log.warn("No handler for {} {}", ex.getHttpMethod(), ex.getResourcePath());
+        var detail = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        detail.setType(PROBLEM_BASE.resolve("endpoint-not-found"));
+        detail.setTitle("Endpoint Not Found");
+        detail.setDetail("No endpoint is mapped to this path.");
+        return detail;
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ProblemDetail handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        log.warn("Method {} not supported; supported={}", ex.getMethod(), ex.getSupportedHttpMethods());
+        var detail = ProblemDetail.forStatus(HttpStatus.METHOD_NOT_ALLOWED);
+        detail.setType(PROBLEM_BASE.resolve("method-not-allowed"));
+        detail.setTitle("Method Not Allowed");
+        detail.setDetail("%s is not supported for this endpoint.".formatted(ex.getMethod()));
+        if (ex.getSupportedHttpMethods() != null) {
+            detail.setProperty("supportedMethods",
+                    ex.getSupportedHttpMethods().stream().map(Object::toString).toList());
+        }
+        return detail;
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ProblemDetail handleMissingParameter(MissingServletRequestParameterException ex) {
+        log.warn("Missing required request parameter '{}'", ex.getParameterName());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("missing-parameter"));
+        detail.setTitle("Missing Parameter");
+        detail.setDetail("Required parameter '%s' was not provided.".formatted(ex.getParameterName()));
+        detail.setProperty("parameter", ex.getParameterName());
+        return detail;
+    }
+
+    /**
+     * Any other request-binding failure — most notably
+     * {@code UnsatisfiedServletRequestParameterException}, raised when a URL is mapped only in
+     * parameter-qualified variants and the request matches none of them
+     * ({@code GET /budgets} with neither {@code ?month=} nor {@code ?year=}).
+     *
+     * <p>Declared after the specific handlers above, which win for the exception types they name.
+     */
+    @ExceptionHandler(ServletRequestBindingException.class)
+    public ProblemDetail handleRequestBinding(ServletRequestBindingException ex) {
+        log.warn("Request binding failed: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("invalid-request"));
+        detail.setTitle("Invalid Request");
+        detail.setDetail("The request is missing a required parameter or does not match any "
+                + "supported form of this endpoint.");
         return detail;
     }
 

@@ -24,10 +24,28 @@
         <jooq.version>3.19.31</jooq.version>
         <testcontainers.version>1.20.1</testcontainers.version>
         <resilience4j.version>2.3.0</resilience4j.version>
+        <awssdk.version>2.29.52</awssdk.version>
         <skipJooq>false</skipJooq>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
+        <!-- ── AWS S3 (presigned upload URLs for statement import) ───── -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
         <!-- ── Web ──────────────────────────────────────────── -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

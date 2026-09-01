@@ -11,7 +11,15 @@ public record Statement(
         LocalDate statementMonth,
         StatementStatus status,
         String description,
-        OffsetDateTime uploadDate
+        OffsetDateTime uploadDate,
+        String sourceFormat,
+        String bankId,
+        // Derived from ledger.transactions.statement_id — 0 for a statement that has no
+        // associated transactions yet (e.g. immediately after initiateUpload, before the
+        // data-pipeline has ingested anything).
+        int txCount,
+        int pendingCount,
+        int approvedCount
 ) {
     public enum StatementStatus { PROCESSING, COMPLETED, FAILED }
 }

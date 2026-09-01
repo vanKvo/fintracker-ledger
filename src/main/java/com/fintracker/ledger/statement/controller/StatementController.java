@@ -1,7 +1,11 @@
 package com.fintracker.ledger.statement.controller;
 
+import com.fintracker.ledger.statement.dto.InitiateStatementUploadRequest;
+import com.fintracker.ledger.statement.dto.StatementUploadResponse;
 import com.fintracker.ledger.statement.model.Statement;
 import com.fintracker.ledger.statement.service.StatementService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +25,19 @@ public class StatementController {
     @GetMapping
     public ResponseEntity<List<Statement>> getStatements(@RequestAttribute("userId") UUID userId) {
         return ResponseEntity.ok(statementService.getStatements(userId));
+    }
+
+    /**
+     * Starts an async statement import: creates the statement record and
+     * returns a presigned S3 URL. The client uploads directly to S3 next —
+     * this endpoint never receives the file itself.
+     */
+    @PostMapping("/initiate-upload")
+    public ResponseEntity<StatementUploadResponse> initiateUpload(
+            @Valid @RequestBody InitiateStatementUploadRequest request,
+            @RequestAttribute("userId") UUID userId) {
+        var response = statementService.initiateUpload(request, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @DeleteMapping("/{id}")
