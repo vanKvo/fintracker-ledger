@@ -13,8 +13,10 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.jooq.impl.DSL.*;
 
@@ -40,6 +42,54 @@ public class JooqBudgetRepository implements BudgetRepository {
     @Override
     public Optional<Budget> findByUserAndMonth(UUID userId, LocalDate effectiveMonth) {
         return fetchOne(field("user_id").eq(userId).and(field("effective_month").eq(effectiveMonth)));
+    }
+
+    @Override
+    public List<Budget> findByUserAndMonthRange(UUID userId, LocalDate startInclusive, LocalDate endInclusive) {
+        var headers = dsl.selectFrom(table(name(SCHEMA, BUDGETS)))
+                .where(field("user_id").eq(userId))
+                .and(field("effective_month").between(startInclusive).and(endInclusive))
+                .orderBy(field("effective_month").desc())
+                .fetch();
+
+        if (headers.isEmpty()) {
+            return List.of();
+        }
+
+        // Two queries total, not one per budget: mapBudget's per-row fetchLines would turn a
+        // twelve-month listing into thirteen round-trips.
+        var budgetIds = headers.map(r -> r.get("budget_id", UUID.class));
+        var linesByBudget = fetchLinesFor(budgetIds);
+
+        return headers.map(r -> {
+            var budgetId = r.get("budget_id", UUID.class);
+            return mapBudget(r, linesByBudget.getOrDefault(budgetId, List.of()));
+        });
+    }
+
+    @Override
+    public List<Integer> findBudgetYears(UUID userId) {
+        // extract() has no jOOQ DSL equivalent; the column is interpolated by jOOQ and userId
+        // still travels as a bind parameter.
+        var year = field("extract(year from {0})::int", Integer.class,
+                field(name(SCHEMA, BUDGETS, "effective_month")));
+        return dsl.selectDistinct(year)
+                .from(table(name(SCHEMA, BUDGETS)))
+                .where(field("user_id").eq(userId))
+                .orderBy(year.desc())
+                .fetch(year);
+    }
+
+    @Override
+    public int deleteByIdIfActive(UUID budgetId, UUID userId) {
+        // Ownership and the ACTIVE guard live in the WHERE clause, so the row is re-checked under
+        // the DELETE's own row lock. A concurrent close or delete makes this a 0-row no-op rather
+        // than removing a budget the caller was no longer entitled to remove.
+        return dsl.deleteFrom(table(name(SCHEMA, BUDGETS)))
+                .where(field("budget_id").eq(budgetId))
+                .and(field("user_id").eq(userId))
+                .and(field("status").eq(BudgetStatus.ACTIVE.name()))
+                .execute();
     }
 
     @Override
@@ -136,13 +186,16 @@ public class JooqBudgetRepository implements BudgetRepository {
     }
 
     private Budget mapBudget(Record r) {
-        var budgetId = r.get("budget_id", UUID.class);
-        return new Budget(budgetId, r.get("user_id", UUID.class),
+        return mapBudget(r, fetchLines(r.get("budget_id", UUID.class)));
+    }
+
+    private Budget mapBudget(Record r, List<BudgetLine> lines) {
+        return new Budget(r.get("budget_id", UUID.class), r.get("user_id", UUID.class),
                 r.get("effective_month", LocalDate.class),
                 r.get("version", Integer.class),
                 BudgetStatus.valueOf(r.get("status", String.class)),
                 r.get("description", String.class),
-                fetchLines(budgetId),
+                lines,
                 r.get("created_at", OffsetDateTime.class));
     }
 
@@ -165,14 +218,27 @@ public class JooqBudgetRepository implements BudgetRepository {
     private List<BudgetLine> fetchLines(UUID budgetId) {
         return dsl.selectFrom(table(name(SCHEMA, BUDGET_LINES)))
                 .where(field("budget_id").eq(budgetId))
-                .fetch(r -> new BudgetLine(
-                        r.get("line_id", UUID.class),
-                        r.get("budget_id", UUID.class),
-                        r.get("category", String.class),
-                        r.get("limit_amount", BigDecimal.class),
-                        r.get("description", String.class),
-                        BigDecimal.ZERO
-                ));
+                .fetch(JooqBudgetRepository::mapLine);
+    }
+
+    /** Every line of every given budget in one round-trip, indexed by owning budget. */
+    private Map<UUID, List<BudgetLine>> fetchLinesFor(List<UUID> budgetIds) {
+        return dsl.selectFrom(table(name(SCHEMA, BUDGET_LINES)))
+                .where(field("budget_id").in(budgetIds))
+                .fetch(JooqBudgetRepository::mapLine)
+                .stream()
+                .collect(Collectors.groupingBy(BudgetLine::budgetId));
+    }
+
+    private static BudgetLine mapLine(Record r) {
+        return new BudgetLine(
+                r.get("line_id", UUID.class),
+                r.get("budget_id", UUID.class),
+                r.get("category", String.class),
+                r.get("limit_amount", BigDecimal.class),
+                r.get("description", String.class),
+                BigDecimal.ZERO
+        );
     }
 
     // ------------------------------------------------------- REQ-5.2 line-item operations

@@ -60,6 +60,49 @@ class BudgetLifecycleIT extends AbstractBudgetIT {
                 .satisfies(l -> assertThat(l.limitAmount()).isEqualByComparingTo("650.00"));
     }
 
+    // Regression: merely *reading* a month with no budget lazily materializes one. That row is
+    // system-created, not user-requested, so it must be born in the state the month-end closure
+    // job would already have left it in — otherwise browsing to an elapsed month in the UI makes
+    // an ACTIVE badge appear for a period that ended, and it stays wrong until the next 1st.
+    @Test
+    @DisplayName("reading an elapsed month with no budget lazily creates it CLOSED, not ACTIVE")
+    void lazilyCreatedPastPeriodBudgetInitializesClosed() {
+        var budget = budgetService.getBudgetForMonth(userId, pastMonth());
+
+        assertThat(budget.status()).isEqualTo(BudgetStatus.CLOSED);
+        assertThat(readStatusColumn(budget.budgetId())).isEqualTo("CLOSED");
+    }
+
+    // The same lazy-create path for a period that has not elapsed is still ACTIVE — the fix keys
+    // off the month having passed, not off the budget having been auto-created.
+    @Test
+    @DisplayName("reading the current or a future month with no budget lazily creates it ACTIVE")
+    void lazilyCreatedCurrentAndFuturePeriodBudgetsInitializeActive() {
+        assertThat(budgetService.getBudgetForMonth(userId, currentMonth()).status())
+                .isEqualTo(BudgetStatus.ACTIVE);
+        assertThat(budgetService.getBudgetForMonth(userId, futureMonth()).status())
+                .isEqualTo(BudgetStatus.ACTIVE);
+    }
+
+    // A lazily created CLOSED budget is not a dead end: REQ-5.1 "Reopening Exemption" applies to
+    // it like any other, which is what the UI's "reopen" button drives.
+    @Test
+    @DisplayName("a lazily created CLOSED past budget can be reopened and then edited")
+    void lazilyCreatedClosedBudgetCanBeReopened() {
+        var month = pastMonth();
+        var budget = budgetService.getBudgetForMonth(userId, month);
+
+        assertThatThrownBy(() -> budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00"))))
+                .isInstanceOf(HistoricalBudgetException.class);
+
+        budgetService.reopenBudget(userId, budget.budgetId());
+        var edited = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
+
+        assertThat(edited.status()).isEqualTo(BudgetStatus.ACTIVE);
+        assertThat(edited.lines()).singleElement()
+                .satisfies(l -> assertThat(l.limitAmount()).isEqualByComparingTo("500.00"));
+    }
+
     @Test
     @DisplayName("a budget created for a future period initializes ACTIVE")
     void futurePeriodBudgetInitializesActive() {

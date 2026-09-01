@@ -40,6 +40,62 @@ public interface BudgetService {
     Budget upsertBudget(UUID userId, LocalDate month, UUID templateId, List<BudgetLine> lines);
 
     /**
+     * A single budget by id, scoped to its owner.
+     *
+     * @throws com.fintracker.ledger.shared.exception.ResourceNotFoundException
+     *         the budget does not exist or belongs to another user — deliberately the same answer
+     *         for both, so an id probe cannot confirm someone else's budget exists.
+     */
+    Budget getBudgetById(UUID userId, UUID budgetId);
+
+    /**
+     * REQ-5.1 A.2 "Get Budgets": every budget the user already has in the given calendar year,
+     * most recent month first, each enriched with per-line {@code spentAmount} under the same
+     * rules as {@link #getBudgetForMonth}.
+     *
+     * <p>Unlike {@link #getBudgetForMonth}, this is a <em>pure read</em>: it never materializes a
+     * budget for a month that has none. Listing a year the user has never budgeted in must not
+     * leave twelve budgets behind.
+     *
+     * @param userId unique identifier of the requesting user.
+     * @param year   four-digit calendar year; budgets whose normalized effectiveMonth falls in
+     *               {@code [YYYY-01-01, YYYY-12-01]} inclusive are returned.
+     * @return the user's budgets for that year ordered by effectiveMonth descending; an empty
+     *         list when the year has none — never null.
+     *
+     * @throws com.fintracker.ledger.budget.exception.InvalidBudgetException
+     *         {@code userId} is null, or {@code year} is outside [1970, 9999].
+     */
+    List<Budget> getBudgetsForYear(UUID userId, int year);
+
+    /**
+     * Every calendar year in which the user holds at least one budget, most recent first.
+     *
+     * <p>Companion to {@link #getBudgetsForYear}: it tells a client which years are worth asking
+     * about before it asks. The first element is the user's most recent budget year and the last
+     * is the year they started budgeting; an empty list means they have never created one.
+     *
+     * @throws com.fintracker.ledger.budget.exception.InvalidBudgetException {@code userId} is null.
+     */
+    List<Integer> getBudgetYears(UUID userId);
+
+    /**
+     * REQ-5.1 A.3 "Delete Budget": permanently removes an ACTIVE budget and, by cascade, its line
+     * items. Underlying transactions are never altered — REQ-5.2 "Orphaned Transaction Handling"
+     * applies to whole-budget deletion exactly as it does to a single line.
+     *
+     * <p>Deletion is a write, so REQ-5.1 "Immutability upon Closure" governs it: a CLOSED budget
+     * is historical record and must be explicitly reopened before it can be deleted.
+     *
+     * @throws com.fintracker.ledger.shared.exception.ResourceNotFoundException
+     *         the budget does not exist or does not belong to the user — the two cases are
+     *         deliberately indistinguishable to the caller.
+     * @throws com.fintracker.ledger.budget.exception.HistoricalBudgetException
+     *         the budget's status is CLOSED.
+     */
+    void deleteBudget(UUID userId, UUID budgetId);
+
+    /**
      * REQ-5.1 "Reopening Exemption": transitions a CLOSED budget back to ACTIVE so the user can
      * modify it again. Reopening an already ACTIVE budget is a no-op.
      *

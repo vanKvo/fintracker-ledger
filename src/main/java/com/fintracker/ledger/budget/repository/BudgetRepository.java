@@ -16,6 +16,45 @@ public interface BudgetRepository {
 
     Optional<Budget> findByUserAndMonth(UUID userId, LocalDate effectiveMonth);
 
+    /**
+     * REQ-5.1 A.2 "Get Budgets": every budget of the user whose effective month falls within
+     * {@code [startInclusive, endInclusive]}, most recent month first.
+     *
+     * <p>A pure read — it never creates a budget for a month that has none. Line items for the
+     * whole result set are loaded in one additional query rather than one per budget, so the cost
+     * is constant in the number of budgets returned.
+     *
+     * @return the matching budgets, ordered by effectiveMonth descending; empty when none match.
+     */
+    List<Budget> findByUserAndMonthRange(UUID userId, LocalDate startInclusive, LocalDate endInclusive);
+
+    /**
+     * Every distinct calendar year in which the user holds at least one budget, most recent first.
+     *
+     * <p>Supports the Budgets page's year navigation: the client needs the user's budget history
+     * span before it can decide which years to offer, and an empty result is the authoritative
+     * "this user has never created a budget" signal. Answering it by probing
+     * {@link #findByUserAndMonthRange} year by year would be an unbounded number of queries
+     * against an unknown lower bound.
+     *
+     * @return distinct years descending; empty when the user has no budgets at all.
+     */
+    List<Integer> findBudgetYears(UUID userId);
+
+    /**
+     * REQ-5.1 A.3 "Delete Budget": deletes the budget only if it is owned by {@code userId} and
+     * still {@link BudgetStatus#ACTIVE}. Its line items go with it via the
+     * {@code budget_lines.budget_id} ON DELETE CASCADE.
+     *
+     * <p>Ownership and the status guard are part of the DELETE's own WHERE clause rather than a
+     * preceding SELECT, so no window exists in which a budget can be closed, reassigned or
+     * deleted by a concurrent request between the check and the write. A caller that reads 0 here
+     * must re-read to decide which failure it was.
+     *
+     * @return 1 when the budget was deleted, 0 when it did not match all three conditions.
+     */
+    int deleteByIdIfActive(UUID budgetId, UUID userId);
+
     Optional<Budget> findLatestByUserId(UUID userId);
 
     /**

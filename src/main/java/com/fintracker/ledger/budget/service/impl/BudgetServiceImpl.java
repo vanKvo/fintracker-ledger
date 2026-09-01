@@ -13,14 +13,17 @@ import com.fintracker.ledger.shared.exception.ResourceNotFoundException;
 import com.fintracker.ledger.transaction.service.TransactionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.Month;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +32,15 @@ import java.util.UUID;
 public class BudgetServiceImpl implements BudgetService {
 
     private static final Logger log = LoggerFactory.getLogger(BudgetServiceImpl.class);
+
+    /**
+     * REQ-5.1 A.2 year bounds. The floor is the epoch year — no financial history predates this
+     * product — and the ceiling is the widest value a four-digit year can express. Their purpose
+     * is to turn a nonsense year into an explicit 400 rather than an expensive scan that returns
+     * an empty list and looks like success.
+     */
+    private static final int MIN_YEAR = 1970;
+    private static final int MAX_YEAR = 9999;
 
     private final BudgetRepository budgetRepository;
     private final TransactionService transactionService;
@@ -54,6 +66,90 @@ public class BudgetServiceImpl implements BudgetService {
     @Override
     public Budget getBudgetForMonth(UUID userId, LocalDate effectiveMonth) {
         return getOrCreateBudgetFromPrevious(userId, effectiveMonth);
+    }
+
+    /**
+     * REQ-5.1 A.2 "Get Budgets".
+     *
+     * <p>Deliberately routed through {@code findByUserAndMonthRange} rather than looping
+     * {@link #getBudgetForMonth} over twelve months: that method lazily creates a budget for a
+     * month that has none, so the loop would silently materialize up to twelve budgets every time
+     * a user opened the page. A.2 "Pure Read" exists to forbid exactly that.
+     *
+     * <p>Cost is three queries — budgets, their lines, and one spend aggregate — regardless of how
+     * many budgets or line items the year holds.
+     */
+    @Override
+    public List<Budget> getBudgetsForYear(UUID userId, int year) {
+        if (userId == null) {
+            throw new InvalidBudgetException("userId is required.");
+        }
+        if (year < MIN_YEAR || year > MAX_YEAR) {
+            throw new InvalidBudgetException(
+                    "year must be between %d and %d, but was %d.".formatted(MIN_YEAR, MAX_YEAR, year));
+        }
+
+        LocalDate january = LocalDate.of(year, Month.JANUARY, 1);
+        LocalDate december = LocalDate.of(year, Month.DECEMBER, 1);
+
+        var budgets = budgetRepository.findByUserAndMonthRange(userId, january, december);
+        if (budgets.isEmpty()) {
+            log.debug("No budgets found. userId={} year={}", userId, year);
+            return List.of();
+        }
+
+        var spendByMonth = transactionService.sumExpensesByMonthAndCategory(
+                userId, january, december.plusMonths(1).minusDays(1));
+
+        log.info("Listed budgets for year. userId={} year={} budgetCount={}", userId, year, budgets.size());
+        return budgets.stream().map(b -> enrichFromIndex(b, spendByMonth)).toList();
+    }
+
+    @Override
+    public Budget getBudgetById(UUID userId, UUID budgetId) {
+        var budget = findOwnedBudget(userId, budgetId);
+        return enrichWithSpending(budget, userId, budget.effectiveMonth());
+    }
+
+    @Override
+    public List<Integer> getBudgetYears(UUID userId) {
+        if (userId == null) {
+            throw new InvalidBudgetException("userId is required.");
+        }
+        return budgetRepository.findBudgetYears(userId);
+    }
+
+    /**
+     * REQ-5.1 A.3 "Delete Budget".
+     *
+     * <p>The guard is applied twice on purpose. The read below exists to tell the caller
+     * which rule it broke (404 vs 422); the authoritative check is the ACTIVE + ownership
+     * predicate inside the DELETE itself, which cannot be raced. Deciding solely on the read would
+     * leave a window in which a budget closed by the month-end scheduler between the check and the
+     * write still gets deleted — a closed accounting period vanishing is precisely what
+     * "Immutability upon Closure" is meant to prevent.
+     */
+    @Override
+    public void deleteBudget(UUID userId, UUID budgetId) {
+        var budget = findOwnedBudget(userId, budgetId);
+        rejectIfClosed(budget);
+
+        int deleted = budgetRepository.deleteByIdIfActive(budgetId, userId);
+        if (deleted == 0) {
+            // The guard passed, but another thread changed the budget before the DELETE.
+            // Check the current state in the database to (e.g., already closed vs. deleted).
+            log.warn("Delete matched no rows after passing the guard; resolving the race. budgetId={} userId={}",
+                    budgetId, userId);
+            budgetRepository.findById(budgetId)
+                    .filter(b -> b.userId().equals(userId))
+                    .ifPresent(this::rejectIfClosed);
+            throw new ResourceNotFoundException("Budget", budgetId);
+        }
+
+        // Deleting a period is permanent and user-driven. 
+        // Log at INFO with full context so the deleted data can be reconstructed if needed.
+        log.info("Deleted budget. budgetId={} userId={} month={} lineCount={}",
+                budgetId, userId, budget.effectiveMonth(), budget.lines().size());
     }
 
     @Override
@@ -84,10 +180,26 @@ public class BudgetServiceImpl implements BudgetService {
         }
 
         var newBudget = new Budget(null, userId, normalizedMonth, 1, BudgetStatus.ACTIVE, null, effectiveLines, null);
-        var saved = budgetRepository.save(newBudget);
-        log.info("Created new budget. budgetId={} userId={} month={} lineCount={}",
-                saved.budgetId(), userId, normalizedMonth, effectiveLines.size());
-        return enrichWithSpending(saved, userId, normalizedMonth);
+        try {
+            var saved = budgetRepository.save(newBudget);
+            log.info("Created new budget. budgetId={} userId={} month={} lineCount={}",
+                    saved.budgetId(), userId, normalizedMonth, effectiveLines.size());
+            return enrichWithSpending(saved, userId, normalizedMonth);
+        } catch (DataIntegrityViolationException raceLoss) {
+            // Another request (e.g. a concurrent lazy-create via GET) created this month's budget
+            // first — the unique (user_id, effective_month) constraint rejected our insert. REQ-5.1
+            // treats this the same as if we had seen it during the read above: fall back to update.
+            log.info("Lost the create race for month={} userId={}; applying payload as an update.",
+                    normalizedMonth, userId);
+            var budget = budgetRepository.findByUserAndMonth(userId, normalizedMonth)
+                    .orElseThrow(() -> raceLoss);
+            rejectIfClosed(budget);
+            budgetRepository.updateLines(budget.budgetId(), effectiveLines);
+            return enrichWithSpending(
+                    budgetRepository.findById(budget.budgetId()).orElseThrow(
+                            () -> new ResourceNotFoundException("Budget", budget.budgetId())),
+                    userId, normalizedMonth);
+        }
     }
 
     @Override
@@ -142,11 +254,39 @@ public class BudgetServiceImpl implements BudgetService {
                 })
                 .orElseGet(List::of);
 
-        var saved = budgetRepository.save(
-                new Budget(null, userId, newMonth, 1, BudgetStatus.ACTIVE, null, templateLines, null));
-        log.info("Lazily created budget. budgetId={} userId={} month={} lineCount={}",
-                saved.budgetId(), userId, newMonth, templateLines.size());
-        return enrichWithSpending(saved, userId, newMonth);
+        try {
+            var saved = budgetRepository.save(
+                    new Budget(null, userId, newMonth, 1, lazyCreateStatusFor(newMonth), null,
+                            templateLines, null));
+            log.info("Lazily created budget. budgetId={} userId={} month={} lineCount={}",
+                    saved.budgetId(), userId, newMonth, templateLines.size());
+            return enrichWithSpending(saved, userId, newMonth);
+        } catch (DataIntegrityViolationException raceLoss) {
+            // Another concurrent request (e.g. an explicit PUT) created this month's budget first.
+            // A read should never overwrite that — just return what won the race.
+            log.info("Lost the lazy-create race for month={} userId={}; returning the existing budget.",
+                    newMonth, userId);
+            return budgetRepository.findByUserAndMonth(userId, newMonth)
+                    .map(b -> enrichWithSpending(b, userId, newMonth))
+                    .orElseThrow(() -> raceLoss);
+        }
+    }
+
+    /**
+     * The status a <em>lazily</em> created budget is born in — the one materialized by a read of a
+     * month that has no budget yet, which no user explicitly asked for.
+     *
+     * <p>REQ-5.1 "State Initialization" pins <em>explicitly</em> created budgets (upsertBudget) to
+     * ACTIVE for any period, so a user deliberately backfilling a past month can still edit it.
+     * A system-materialized row has no such intent behind it, and stamping it ACTIVE contradicts
+     * REQ-5.1 "Automated Period Closure": the closure job only runs on the 1st of the month, so a
+     * row auto-created for an elapsed month would advertise itself as ACTIVE — and render an
+     * ACTIVE badge in the UI — until the next month boundary. Creating it in the state the closure
+     * job would already have left it in keeps read-only browsing of history free of side effects
+     * the user can observe.
+     */
+    private BudgetStatus lazyCreateStatusFor(LocalDate normalizedMonth) {
+        return normalizedMonth.isBefore(currentMonth()) ? BudgetStatus.CLOSED : BudgetStatus.ACTIVE;
     }
 
     /**
@@ -262,6 +402,32 @@ public class BudgetServiceImpl implements BudgetService {
                     return new BudgetLine(line.lineId(), line.budgetId(), line.category(),
                             line.limitAmount(), line.description(), spent);
                 })
+                .toList();
+
+        return new Budget(budget.budgetId(), budget.userId(), budget.effectiveMonth(),
+                budget.version(), budget.status(), budget.description(), enrichedLines, budget.createdAt());
+    }
+
+    /**
+     * The batched counterpart of {@link #enrichWithSpending}, reading from a pre-computed
+     * month → category → total index instead of querying per line.
+     *
+     * <p>Applies the identical REQ-5.1 "Spend Amount Initialization" rules: future periods report
+     * $0.00, and category matching is case-insensitive. A category absent from the index has no
+     * approved spending and reports {@code 0.00} — never null, so a line without transactions is
+     * indistinguishable from one whose transactions summed to zero, exactly as in the single-month
+     * read path.
+     */
+    private Budget enrichFromIndex(Budget budget, Map<LocalDate, Map<String, BigDecimal>> spendByMonth) {
+        boolean futurePeriod = budget.effectiveMonth().isAfter(currentMonth());
+        Map<String, BigDecimal> monthSpend = futurePeriod
+                ? Map.of()
+                : spendByMonth.getOrDefault(budget.effectiveMonth(), Map.of());
+
+        List<BudgetLine> enrichedLines = budget.lines().stream()
+                .map(line -> new BudgetLine(line.lineId(), line.budgetId(), line.category(),
+                        line.limitAmount(), line.description(),
+                        monthSpend.getOrDefault(line.category().toLowerCase(Locale.ROOT), BigDecimal.ZERO)))
                 .toList();
 
         return new Budget(budget.budgetId(), budget.userId(), budget.effectiveMonth(),
