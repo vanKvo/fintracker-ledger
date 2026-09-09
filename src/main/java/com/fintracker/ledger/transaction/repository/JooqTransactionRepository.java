@@ -28,6 +28,10 @@ public class JooqTransactionRepository implements TransactionRepository {
     private static final String SCHEMA   = "ledger";
     private static final String TX_TABLE = "transactions";
     private static final String SPLIT_CHILD_ALIAS = "split_child";
+    // Rows per INSERT statement in bulkInsertIgnoringDuplicates: 1,000 rows × 14 bound
+    // columns = 14,000 parameters per statement — well under Postgres's 65,535-parameter
+    // ceiling, and small enough that one parse/plan cycle stays cheap.
+    private static final int BULK_INSERT_CHUNK_SIZE = 1_000;
 
     private final DSLContext dsl;
 
@@ -177,6 +181,63 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .fetchOne(0, int.class);
     }
 
+    /**
+     * REQ-STMT-02: bounded multi-row INSERTs targeting idx_unique_statement_row_fingerprint
+     * (V12); Postgres skips rows already recorded under the same (statement_id,
+     * row_fingerprint) and inserts the rest — a retried batch is a safe no-op for every
+     * row already recorded, not an error. The returned rowcount counts only rows actually
+     * inserted, summed across chunks.
+     *
+     * <p>The batch is split into {@value #BULK_INSERT_CHUNK_SIZE}-row chunks: a single
+     * statement import may legally run to the request cap (10,000 rows, see
+     * BulkCreateTransactionsRequest), and one unbounded INSERT of that size would hold
+     * ~170k bind parameters in one parse/plan cycle against Postgres's 65,535-parameter
+     * ceiling — a hard failure well before that, and a memory/CPU spike below it.
+     * 1,000 rows × 14 columns stays comfortably inside both. All chunks run in ONE
+     * transaction: a statement import is all-or-nothing, so a mid-batch failure rolls
+     * back the earlier chunks rather than leaving a half-recorded statement for the
+     * retry logic to untangle.
+     *
+     * <p>user_id is deliberately not in the column list: trg_transactions_set_user_id
+     * (V3) derives it from the account, so the tenant stamp cannot be forged by a
+     * caller. is_manual is set explicitly for the same reason save() does (V4).
+     */
+    @Override
+    public int bulkInsertIgnoringDuplicates(UUID statementId, List<Transaction> rows) {
+        if (rows.isEmpty()) {
+            return 0;
+        }
+
+        return dsl.transactionResult(configuration -> {
+            var txDsl = DSL.using(configuration);
+            int inserted = 0;
+            for (int from = 0; from < rows.size(); from += BULK_INSERT_CHUNK_SIZE) {
+                var chunk = rows.subList(from, Math.min(from + BULK_INSERT_CHUNK_SIZE, rows.size()));
+
+                var insert = txDsl.insertInto(table(name(SCHEMA, TX_TABLE)))
+                        .columns(field("transaction_id"), field("account_id"), field("statement_id"),
+                                field("amount"), field("merchant"), field("category"), field("tags"),
+                                field("tx_date"), field("source"), field("type"), field("status"),
+                                field("is_excluded"), field("is_manual"), field("row_fingerprint"));
+                for (var tx : chunk) {
+                    insert.values(UUID.randomUUID(), tx.accountId(), statementId, tx.amount(), tx.merchant(),
+                            tx.category(), tx.tags() != null ? tx.tags().toArray(String[]::new) : new String[0],
+                            tx.txDate(), tx.source().name(), tx.type().name(), tx.status().name(),
+                            tx.isExcluded(), tx.isManual(), tx.rowFingerprint());
+                }
+
+                // The WHERE predicate is REQUIRED in the arbiter, not stylistic: Postgres infers
+                // a partial unique index for ON CONFLICT only when the index predicate appears
+                // here; without it the statement fails with "could not find arbiter index".
+                inserted += insert.onConflict(field("statement_id"), field("row_fingerprint"))
+                        .where(field("row_fingerprint").isNotNull())
+                        .doNothing()
+                        .execute();
+            }
+            return inserted;
+        });
+    }
+
     @Override
     public BigDecimal sumMonthlyIncome(UUID userId, LocalDate monthStart, LocalDate monthEnd) {
         return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class)), BigDecimal.ZERO))
@@ -312,7 +373,8 @@ public class JooqTransactionRepository implements TransactionRepository {
                 Transaction.TransactionStatus.valueOf(record.get("status", String.class)),
                 record.get("is_excluded", Boolean.class),
                 record.get("is_manual", Boolean.class),
-                record.get("created_at", OffsetDateTime.class)
+                record.get("created_at", OffsetDateTime.class),
+                record.get("row_fingerprint", String.class)
         );
     }
 }

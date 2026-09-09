@@ -4,6 +4,7 @@ import com.fintracker.ledger.shared.UserContextHolder;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -39,6 +40,11 @@ import java.sql.Statement;
  * restarted per class.
  */
 @SpringBootTest
+// The "test" profile is what supplies ledger.internal.allowed-caller-arns (see the
+// local/test profile document in application.yml): in every other profile that
+// allow-list defaults to empty, which is a startup failure by design — so integration
+// tests that boot the whole context must run under a profile that names a caller ARN.
+@ActiveProfiles("test")
 public abstract class AbstractIntegrationTest {
 
     private static final String APP_USER = "app_user";

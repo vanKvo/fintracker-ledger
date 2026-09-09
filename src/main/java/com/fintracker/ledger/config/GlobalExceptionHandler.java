@@ -7,6 +7,7 @@ import com.fintracker.ledger.budget.exception.HistoricalBudgetException;
 import com.fintracker.ledger.budget.exception.InvalidBudgetException;
 import com.fintracker.ledger.budget.exception.LineItemLimitExceededException;
 import com.fintracker.ledger.shared.exception.ResourceNotFoundException;
+import com.fintracker.ledger.statement.exception.DuplicateStatementException;
 import com.fintracker.ledger.statement.exception.StatementNotFoundException;
 import com.fintracker.ledger.transaction.exception.IllegalStateTransitionException;
 import com.fintracker.ledger.transaction.exception.SplitAmountMismatchException;
@@ -14,6 +15,7 @@ import com.fintracker.ledger.transaction.exception.TooManyTagsException;
 import com.fintracker.ledger.transaction.exception.TransactionNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -158,6 +160,30 @@ public class GlobalExceptionHandler {
         return detail;
     }
 
+    /**
+     * REQ-STMT-03/06: a recognized duplicate upload — exact same file, or a month the
+     * account already has a statement for. The user-facing answer carries the existing
+     * statement's id, original upload date, and transaction count so the client can show
+     * "statement already exists" with context and offer overwrite (REQ-STMT-05) or cancel.
+     */
+    @ExceptionHandler(DuplicateStatementException.class)
+    public ProblemDetail handleDuplicateStatement(DuplicateStatementException ex) {
+        log.warn("Duplicate statement upload rejected: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        detail.setType(PROBLEM_BASE.resolve("duplicate-statement"));
+        detail.setTitle("Duplicate Statement");
+        detail.setDetail(switch (ex.getMatchType()) {
+            case EXACT_FILE -> "This exact file has already been uploaded for this account.";
+            case CONTENT_FINGERPRINT -> "A statement with identical content already exists for this account.";
+            case SAME_MONTH -> "A statement already exists for this account covering this statement month.";
+        });
+        detail.setProperty("matchType", ex.getMatchType().name());
+        detail.setProperty("existingStatementId", ex.getExistingStatementId());
+        detail.setProperty("existingUploadDate", ex.getExistingUploadDate());
+        detail.setProperty("existingTransactionCount", ex.getExistingTransactionCount());
+        return detail;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         log.warn("Invalid argument: {}", ex.getMessage());
@@ -263,6 +289,31 @@ public class GlobalExceptionHandler {
         detail.setTitle("Invalid Request");
         detail.setDetail("The request is missing a required parameter or does not match any "
                 + "supported form of this endpoint.");
+        return detail;
+    }
+
+    /**
+     * A database error that reached the controller layer. Two types are named here:
+     * Spring's {@link DataAccessException} (the translation target for classified
+     * SQLSTATEs) and jOOQ's native {@link org.jooq.exception.DataAccessException} (what
+     * escapes when the SQLSTATE is one Spring's translator does not classify). Neither
+     * may ever echo its message to a client: both can embed the failing SQL statement —
+     * table names, bind values, tenant identifiers. The full detail is logged
+     * server-side; the client gets the same generic 500 body as any unexpected error.
+     *
+     * <p>Declared ahead of {@link #handleUnexpected}, which would otherwise catch these
+     * — correctly, but without the log line that makes database failures greppable.
+     */
+    // The parameter is RuntimeException, not DataAccessException: jOOQ's native type
+    // does not extend Spring's, so a narrower parameter would fail argument resolution
+    // exactly when the jOOQ exception is the one being handled.
+    @ExceptionHandler({DataAccessException.class, org.jooq.exception.DataAccessException.class})
+    public ProblemDetail handleDataAccess(RuntimeException ex) {
+        log.error("Database error (not surfaced to client): {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
+        detail.setType(PROBLEM_BASE.resolve("internal-error"));
+        detail.setTitle("Internal Server Error");
+        detail.setDetail("An unexpected error occurred. Please try again later.");
         return detail;
     }
 

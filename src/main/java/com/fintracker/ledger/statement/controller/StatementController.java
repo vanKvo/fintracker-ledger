@@ -31,13 +31,17 @@ public class StatementController {
      * Starts an async statement import: creates the statement record and
      * returns a presigned S3 URL. The client uploads directly to S3 next —
      * this endpoint never receives the file itself.
+     *
+     * <p>REQ-STMT-03: 202 Accepted — the upload is accepted for asynchronous
+     * processing, not completed. A recognized duplicate is a 409 Conflict instead
+     * (see GlobalExceptionHandler.handleDuplicateStatement).
      */
     @PostMapping("/initiate-upload")
     public ResponseEntity<StatementUploadResponse> initiateUpload(
             @Valid @RequestBody InitiateStatementUploadRequest request,
             @RequestAttribute("userId") UUID userId) {
         var response = statementService.initiateUpload(request, userId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @DeleteMapping("/{id}")

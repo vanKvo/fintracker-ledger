@@ -1,5 +1,7 @@
 package com.fintracker.ledger.transaction.service;
 
+import com.fintracker.ledger.transaction.dto.BulkCreateTransactionsRequest;
+import com.fintracker.ledger.transaction.dto.BulkCreateTransactionsResponse;
 import com.fintracker.ledger.transaction.dto.ManualTransactionRequest;
 import com.fintracker.ledger.transaction.model.Transaction;
 import com.fintracker.ledger.transaction.model.TransactionFilter;
@@ -13,6 +15,16 @@ import java.util.UUID;
 public interface TransactionService {
 
     List<Transaction> getTransactions(TransactionFilter filter);
+
+    /**
+     * REQ-STMT-02. Validates statementId belongs to userId, converts each accepted
+     * TransactionLine into a Transaction (source=STATEMENT_UPLOAD, status=PENDING),
+     * and delegates to TransactionRepository.bulkInsertIgnoringDuplicates. Rows that
+     * fail basic validation (blank merchant, etc.) are excluded
+     * from the insert and reported back as failedRows rather than aborting the batch.
+     */
+    BulkCreateTransactionsResponse bulkCreateFromStatement(
+            UUID statementId, UUID userId, List<BulkCreateTransactionsRequest.TransactionLine> lines);
 
     /**
      * REQ-2.3.1 "Manual Row Insertion". NOT YET IMPLEMENTED — see

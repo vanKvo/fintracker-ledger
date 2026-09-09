@@ -27,6 +27,17 @@ aws:
     statements-bucket: ${STATEMENTS_BUCKET_NAME}
     presigned-url-expiry-minutes: 15
 
+ledger:
+  internal:
+    # REQ-STMT-02: verified SigV4 caller ARNs permitted on /api/v1/ledger/**/internal/**
+    # routes (checked by InternalCallerFilter, registered in InternalCallerFilterConfig).
+    # Production MUST set LEDGER_INTERNAL_ALLOWED_CALLER_ARNS to the data-pipeline
+    # dispatcher role's ARN — the default here is deliberately empty, and an empty
+    # allow-list is a startup failure, not a permissive default. A placeholder dev role
+    # exists only under the local/test profile document at the bottom of this file, so
+    # no real deployment can ever pick it up by forgetting to set the variable.
+    allowed-caller-arns: ${LEDGER_INTERNAL_ALLOWED_CALLER_ARNS:}
+
 server:
   port: 8081
   error:
@@ -60,3 +71,31 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         sliding-window-size: 10
+
+---
+# Local development and the automated test suite only. The placeholder dispatcher role
+# below exists so `spring.profiles.active=local` (dev machines) and @ActiveProfiles("test")
+# (integration tests) boot without exporting LEDGER_INTERNAL_ALLOWED_CALLER_ARNS; in any
+# other profile the base document above leaves the allow-list empty, which is a startup
+# failure — a deployment without the variable set refuses to start rather than running
+# with a placeholder (or open) internal gate.
+spring:
+  config:
+    activate:
+      on-profile: local,test
+aws:
+  s3:
+    # Same rationale as the dispatcher-role default below: the base document above
+    # declares `statements-bucket: ${STATEMENTS_BUCKET_NAME}` with NO fallback, so any
+    # profile other than local/test refuses to start without a real bucket configured —
+    # which is what we want for a deployment. But that also meant `mvn verify` could not
+    # run standalone: every integration test booting a full context (i.e. all of them
+    # except the ones that @MockitoBean S3PresignService away) died in bean creation with
+    # "Could not resolve placeholder 'STATEMENTS_BUCKET_NAME'", 267 of 276 in one run.
+    # The suite must not depend on the developer having exported ambient AWS variables
+    # first; no test here ever calls S3, it only needs the bean to construct.
+    statements-bucket: ${STATEMENTS_BUCKET_NAME:test-statements-bucket}
+
+ledger:
+  internal:
+    allowed-caller-arns: ${LEDGER_INTERNAL_ALLOWED_CALLER_ARNS:arn:aws:iam::000000000000:role/local-dev-dispatcher}

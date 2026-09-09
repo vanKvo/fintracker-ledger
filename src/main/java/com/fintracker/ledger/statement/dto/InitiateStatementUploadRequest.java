@@ -16,19 +16,30 @@ import java.util.UUID;
  * sense that we still validate ownership, we just also need to know which
  * account before creating anything).
  *
- * bankId is required when sourceFormat is CSV (the data-pipeline's column
- * mapping is keyed by bank) and must be omitted otherwise. openingDate/
- * closingDate are required for PDF/IMAGE (used for soft date-range
- * validation against extracted transactions) and not applicable to CSV,
- * whose rows already carry their own dates.
+ * <p>bankId is required when sourceFormat is CSV (the data-pipeline's column
+ * mapping is keyed by bank) and must be omitted otherwise.
+ *
+ * <p>REQ-STMT-07: openingDate/closingDate are collected for every format, CSV
+ * included — the server derives the statement's grouping month from closingDate
+ * (the month a bank statement is conventionally labeled by) rather than asking
+ * the user to pick a month directly, and the full range is stored and displayed.
+ * The declared range is a label for organizing the statement; nothing here
+ * validates it against the file's actual transaction dates.
+ *
+ * <p>REQ-STMT-03: contentHash is the SHA-256 of the file's exact contents,
+ * computed by the client before upload. Required, not optional — an upload
+ * without one is rejected outright rather than processed without the duplicate
+ * check, so no client can opt itself out of duplicate detection by omitting a
+ * field. overwriteStatementId is reserved for REQ-STMT-05 (overwrite an existing
+ * statement); it is accepted here for forward compatibility but no overwrite
+ * behavior is implemented yet.
  */
 public record InitiateStatementUploadRequest(
         @NotNull UUID accountId,
-        @NotNull LocalDate statementMonth,
         String description,
         @NotNull @Pattern(regexp = "PDF|CSV|IMAGE") String sourceFormat,
-        String fileName,
-        String bankId,
-        LocalDate openingDate,
-        LocalDate closingDate
+        String fileName, String bankId,
+        @NotNull LocalDate openingDate, @NotNull LocalDate closingDate,   // REQ-STMT-07
+        @NotNull @Pattern(regexp = "[a-f0-9]{64}") String contentHash,   // REQ-STMT-03, REQUIRED
+        UUID overwriteStatementId                                       // REQ-STMT-05, optional
 ) {}

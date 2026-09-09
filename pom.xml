@@ -136,6 +136,38 @@
 
     <build>
         <plugins>
+            <!-- Fail fast, and legibly, when Maven is running on the wrong JDK.
+
+                 Without this, an incorrect JDK does not announce itself: Mockito's Byte Buddy
+                 (1.15.11, version-managed by the Spring Boot parent) officially supports up to
+                 Java 24 / class file 68, so on Java 25+ every @Mock of a non-final class dies with
+                 "Mockito cannot mock this class" — 14 errors that read like a broken test suite
+                 rather than a wrong-JVM problem, with the real cause buried in a nested
+                 "Java 25 (69) is not supported by the current version of Byte Buddy" cause.
+
+                 Note this checks the JVM *running Maven*, which is NOT what <java.version>21</java.version>
+                 controls — that property only sets the compiler's release target. Which JVM launches
+                 Maven comes from JAVA_HOME, and Homebrew's mvn wrapper silently falls back to its own
+                 unversioned `openjdk` keg (currently 25) when JAVA_HOME is unset. See
+                 docs/instructions/setup_jdk_for_maven.md. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-java-21</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>This project must be built with Java 21 (see docs/instructions/setup_jdk_for_maven.md). Maven is currently running on a different JDK, which will fail the Mockito-based tests with a misleading "Mockito cannot mock this class" error. Fix: export JAVA_HOME=$(/usr/libexec/java_home -v 21), or start a shell where jenv is active.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

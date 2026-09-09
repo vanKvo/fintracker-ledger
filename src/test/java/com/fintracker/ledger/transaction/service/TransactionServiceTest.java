@@ -1,8 +1,11 @@
 package com.fintracker.ledger.transaction.service;
 
 import com.fintracker.ledger.account.repository.AccountRepository;
+import com.fintracker.ledger.statement.exception.StatementNotFoundException;
 import com.fintracker.ledger.statement.model.Statement;
+import com.fintracker.ledger.statement.repository.StatementRepository;
 import com.fintracker.ledger.statement.service.StatementService;
+import com.fintracker.ledger.transaction.dto.BulkCreateTransactionsRequest;
 import com.fintracker.ledger.transaction.dto.ManualTransactionRequest;
 import com.fintracker.ledger.transaction.model.Transaction;
 import com.fintracker.ledger.transaction.repository.TransactionRepository;
@@ -23,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -66,6 +70,7 @@ import static org.mockito.Mockito.*;
 class TransactionServiceTest {
 
     @Mock private TransactionRepository transactionRepository;
+    @Mock private StatementRepository statementRepository;
     @Mock private StatementService statementService;
     @Mock private AccountRepository accountRepository;
 
@@ -74,7 +79,12 @@ class TransactionServiceTest {
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionServiceImpl(transactionRepository, statementService, accountRepository);
+        // Collaborator order per prompt.md REQ-STMT-02: repositories first, then services.
+        // StatementRepository is the new one — bulkCreateFromStatement's ownership check reuses
+        // "the same ownership-lookup shape StatementServiceImpl.deleteStatement already uses",
+        // which is statementRepository.findByIdAndUserId, not a new StatementService method.
+        transactionService = new TransactionServiceImpl(
+                transactionRepository, statementRepository, statementService, accountRepository);
         userId = UUID.randomUUID();
     }
 
@@ -83,7 +93,7 @@ class TransactionServiceTest {
                 new BigDecimal("-100.00"), "Merchant", "Groceries", "Description", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.STATEMENT_UPLOAD,
                 Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null);
+                false, false, null, null);
     }
 
     private Transaction transactionWithTags(UUID id, List<String> tags) {
@@ -91,7 +101,7 @@ class TransactionServiceTest {
                 new BigDecimal("-100.00"), "Merchant", "Groceries", "Description", tags,
                 LocalDate.now(), Transaction.TransactionSource.STATEMENT_UPLOAD,
                 Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null);
+                false, false, null, null);
     }
 
     private Transaction postedTransaction(UUID id) {
@@ -99,7 +109,7 @@ class TransactionServiceTest {
                 new BigDecimal("-50.00"), "Shop", "Dining", "Description", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.MANUAL_ENTRY,
                 Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.POSTED,
-                false, true, null);
+                false, true, null, null);
     }
 
     // REQ-2.2 "Status Promotion" (single-transaction path): status column transitions from
@@ -647,6 +657,225 @@ class TransactionServiceTest {
                     .isInstanceOf(IllegalArgumentException.class);
 
             verify(transactionRepository, never()).save(any());
+        }
+    }
+
+    // REQ-STMT-02 "Connecting Statement Reading to the Ledger": one call per statement, idempotent
+    // retry via ON CONFLICT DO NOTHING, malformed rows excluded rather than aborting the batch.
+    // FAIL-TO-PASS: bulkCreateFromStatement did not exist before this change.
+    @Nested
+    @DisplayName("bulkCreateFromStatement()")
+    class BulkCreateFromStatement {
+
+        private Statement statement(UUID statementId, UUID accountId) {
+            return new Statement(statementId, accountId, "statements/x/y/z.csv",
+                    LocalDate.of(2026, 8, 1), Statement.StatementStatus.PROCESSING, "desc",
+                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64),
+                    LocalDate.of(2026, 8, 3), LocalDate.of(2026, 9, 2), 0, 0, 0);
+        }
+
+        private BulkCreateTransactionsRequest.TransactionLine validLine(String fingerprint) {
+            return new BulkCreateTransactionsRequest.TransactionLine(
+                    LocalDate.of(2026, 8, 15), "Corner Store", new BigDecimal("-42.50"),
+                    "Groceries", null, "PURCHASE", fingerprint);
+        }
+
+        @Test
+        @DisplayName("should throw StatementNotFoundException when statementId doesn't belong "
+                + "to the requesting user, and never call the repository")
+        void shouldThrowWhenStatementNotOwnedByUser() {
+            var statementId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> transactionService.bulkCreateFromStatement(
+                    statementId, userId, List.of(validLine("a".repeat(64)))))
+                    .isInstanceOf(StatementNotFoundException.class);
+
+            verify(transactionRepository, never()).bulkInsertIgnoringDuplicates(any(), anyList());
+        }
+
+        @Test
+        @DisplayName("boundary: an empty transaction list should insert nothing and report "
+                + "insertedCount=0 without calling the repository")
+        void shouldHandleEmptyTransactionList() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+
+            var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of());
+
+            assertThat(result.insertedCount()).isZero();
+            assertThat(result.skippedDuplicateCount()).isZero();
+            assertThat(result.failedRows()).isEmpty();
+            verify(transactionRepository, never()).bulkInsertIgnoringDuplicates(any(), anyList());
+        }
+
+        @Test
+        @DisplayName("state after partial failure: a malformed row inside an otherwise-valid batch "
+                + "is excluded and reported, not aborting the whole batch")
+        void shouldExcludeMalformedRowsWithoutAbortingBatch() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+            when(transactionRepository.bulkInsertIgnoringDuplicates(eq(statementId), anyList()))
+                    .thenAnswer(i -> ((List<?>) i.getArgument(1)).size());
+
+            var goodLine = validLine("a".repeat(64));
+            var zeroAmountLine = new BulkCreateTransactionsRequest.TransactionLine(
+                    LocalDate.of(2026, 8, 16), "Bad Row", BigDecimal.ZERO,
+                    "Groceries", null, "PURCHASE", "b".repeat(64));
+            var blankMerchantLine = new BulkCreateTransactionsRequest.TransactionLine(
+                    LocalDate.of(2026, 8, 17), " ", new BigDecimal("-10.00"),
+                    "Groceries", null, "PURCHASE", "c".repeat(64));
+
+            var result = transactionService.bulkCreateFromStatement(
+                    statementId, userId, List.of(goodLine, zeroAmountLine, blankMerchantLine));
+
+            assertThat(result.insertedCount()).isEqualTo(1);
+            assertThat(result.failedRows()).hasSize(2);
+            assertThat(result.failedRows()).extracting("index").containsExactlyInAnyOrder(1, 2);
+
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(transactionRepository).bulkInsertIgnoringDuplicates(eq(statementId), captor.capture());
+            assertThat(captor.getValue()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("idempotency: skippedDuplicateCount reflects rows the repository reports as "
+                + "already present (simulating a retried batch)")
+        void shouldReportSkippedDuplicatesFromRepository() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+            // Simulates a retry: every row's (statement_id, row_fingerprint) already exists, so
+            // ON CONFLICT DO NOTHING inserts none of them on this call.
+            when(transactionRepository.bulkInsertIgnoringDuplicates(eq(statementId), anyList())).thenReturn(0);
+
+            var result = transactionService.bulkCreateFromStatement(
+                    statementId, userId, List.of(validLine("a".repeat(64)), validLine("b".repeat(64))));
+
+            assertThat(result.insertedCount()).isZero();
+            assertThat(result.skippedDuplicateCount()).isEqualTo(2);
+            assertThat(result.failedRows()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("multi-tenant: transactions are created against the statement's own "
+                + "accountId, never a value from the request")
+        void shouldUseStatementsOwnAccountId() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+            when(transactionRepository.bulkInsertIgnoringDuplicates(eq(statementId), anyList())).thenReturn(1);
+
+            transactionService.bulkCreateFromStatement(statementId, userId, List.of(validLine("a".repeat(64))));
+
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(transactionRepository).bulkInsertIgnoringDuplicates(eq(statementId), captor.capture());
+            @SuppressWarnings("unchecked")
+            var rows = (List<Transaction>) captor.getValue();
+            assertThat(rows).extracting(Transaction::accountId).containsOnly(accountId);
+            assertThat(rows).extracting(Transaction::rowFingerprint).containsExactly("a".repeat(64));
+            assertThat(rows).extracting(Transaction::source)
+                    .containsOnly(Transaction.TransactionSource.STATEMENT_UPLOAD);
+            assertThat(rows).extracting(Transaction::status)
+                    .containsOnly(Transaction.TransactionStatus.PENDING);
+        }
+    }
+
+    // ADDED. REQ-STMT-02's Error Handling section names three row-level validation failures —
+    // "non-positive amount, blank merchant, type outside PURCHASE/CREDIT" — and the class above
+    // covers only the first two. It also never pins down what the FailedRow.index actually refers
+    // to, which is the difference between a caller being able to point at the offending line of
+    // their statement and being handed a number that means nothing.
+    @Nested
+    @DisplayName("bulkCreateFromStatement() — row validation edge cases")
+    class BulkCreateFromStatementRowValidation {
+
+        private Statement statement(UUID statementId, UUID accountId) {
+            return new Statement(statementId, accountId, "statements/x/y/z.csv",
+                    LocalDate.of(2026, 8, 1), Statement.StatementStatus.PROCESSING, "desc",
+                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64),
+                    LocalDate.of(2026, 8, 3), LocalDate.of(2026, 9, 2), 0, 0, 0);
+        }
+
+        private BulkCreateTransactionsRequest.TransactionLine line(
+                String merchant, BigDecimal amount, String type, String fingerprint) {
+            return new BulkCreateTransactionsRequest.TransactionLine(
+                    LocalDate.of(2026, 8, 15), merchant, amount, "Groceries", null, type, fingerprint);
+        }
+
+        @Test
+        @DisplayName("a type outside PURCHASE/CREDIT is reported as a failedRow, not inserted and "
+                + "not thrown")
+        void shouldRejectRowWithUnsupportedType() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+            when(transactionRepository.bulkInsertIgnoringDuplicates(eq(statementId), anyList()))
+                    .thenAnswer(i -> ((List<?>) i.getArgument(1)).size());
+
+            var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
+                    line("Corner Store", new BigDecimal("-42.50"), "TRANSFER", "a".repeat(64)),
+                    line("Corner Store", new BigDecimal("-10.00"), "PURCHASE", "b".repeat(64))));
+
+            assertThat(result.failedRows()).hasSize(1);
+            assertThat(result.failedRows()).extracting("index").containsExactly(0);
+            assertThat(result.insertedCount()).isEqualTo(1);
+
+            var captor = ArgumentCaptor.forClass(List.class);
+            verify(transactionRepository).bulkInsertIgnoringDuplicates(eq(statementId), captor.capture());
+            assertThat(captor.getValue()).hasSize(1);
+        }
+
+        // The failing rows deliberately bracket the valid one, so an implementation that reports
+        // the index within the filtered/accepted list (or a running counter over failures) produces
+        // 0,1 instead of the request indices 0,2 and fails here.
+        @Test
+        @DisplayName("failedRows carry the row's index in the ORIGINAL request, not its position "
+                + "among the failures or among the accepted rows")
+        void failedRowIndicesReferToTheOriginalRequestPositions() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+            when(transactionRepository.bulkInsertIgnoringDuplicates(eq(statementId), anyList()))
+                    .thenAnswer(i -> ((List<?>) i.getArgument(1)).size());
+
+            var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
+                    line("  ", new BigDecimal("-1.00"), "PURCHASE", "a".repeat(64)),
+                    line("Corner Store", new BigDecimal("-2.00"), "PURCHASE", "b".repeat(64)),
+                    line("Corner Store", BigDecimal.ZERO, "PURCHASE", "c".repeat(64))));
+
+            assertThat(result.insertedCount()).isEqualTo(1);
+            assertThat(result.failedRows()).extracting("index").containsExactlyInAnyOrder(0, 2);
+        }
+
+        // Boundary mirroring the empty-list case: once every row has been filtered out there is
+        // nothing to insert, and a multi-row INSERT built from an empty row list is not a valid
+        // statement — the repository must not be called at all.
+        @Test
+        @DisplayName("boundary: a batch in which every row is malformed inserts nothing and never "
+                + "reaches the repository")
+        void shouldNotCallRepositoryWhenEveryRowIsMalformed() {
+            var statementId = UUID.randomUUID();
+            var accountId = UUID.randomUUID();
+            when(statementRepository.findByIdAndUserId(statementId, userId))
+                    .thenReturn(Optional.of(statement(statementId, accountId)));
+
+            var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
+                    line("", new BigDecimal("-1.00"), "PURCHASE", "a".repeat(64)),
+                    line("Corner Store", BigDecimal.ZERO, "PURCHASE", "b".repeat(64))));
+
+            assertThat(result.insertedCount()).isZero();
+            assertThat(result.skippedDuplicateCount()).isZero();
+            assertThat(result.failedRows()).hasSize(2);
+            verify(transactionRepository, never()).bulkInsertIgnoringDuplicates(any(), anyList());
         }
     }
 }

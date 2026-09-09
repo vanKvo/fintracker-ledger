@@ -34,6 +34,13 @@ public interface TransactionRepository {
 
     int countPendingByStatementId(UUID statementId);
 
+    /**
+     * Single multi-row INSERT ... ON CONFLICT (statement_id, row_fingerprint) DO NOTHING.
+     * Returns how many of the given rows were actually inserted — the caller derives
+     * skippedDuplicateCount as rows.size() - insertedCount.
+     */
+    int bulkInsertIgnoringDuplicates(UUID statementId, List<Transaction> rows);
+
     BigDecimal sumMonthlyIncome(UUID userId, LocalDate monthStart, LocalDate monthEnd);
 
     BigDecimal sumMonthlyExpenses(UUID userId, LocalDate monthStart, LocalDate monthEnd);
