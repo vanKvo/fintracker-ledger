@@ -64,7 +64,7 @@ class BulkCreateAmountValidationTest {
     private Statement ownedStatement(UUID statementId, UUID accountId) {
         return new Statement(statementId, accountId, "statements/u/s/stmt.csv",
                 LocalDate.of(2026, 9, 1), Statement.StatementStatus.PROCESSING, null,
-                OffsetDateTime.now(), "CSV", "bank-a", "c".repeat(64),
+                OffsetDateTime.now(), "CSV", "bank-a", "c".repeat(64), null,
                 LocalDate.of(2026, 8, 3), LocalDate.of(2026, 9, 2), 0, 0, 0);
     }
 

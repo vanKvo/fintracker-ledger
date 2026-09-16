@@ -670,7 +670,7 @@ class TransactionServiceTest {
         private Statement statement(UUID statementId, UUID accountId) {
             return new Statement(statementId, accountId, "statements/x/y/z.csv",
                     LocalDate.of(2026, 8, 1), Statement.StatementStatus.PROCESSING, "desc",
-                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64),
+                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64), null,
                     LocalDate.of(2026, 8, 3), LocalDate.of(2026, 9, 2), 0, 0, 0);
         }
 
@@ -799,7 +799,7 @@ class TransactionServiceTest {
         private Statement statement(UUID statementId, UUID accountId) {
             return new Statement(statementId, accountId, "statements/x/y/z.csv",
                     LocalDate.of(2026, 8, 1), Statement.StatementStatus.PROCESSING, "desc",
-                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64),
+                    OffsetDateTime.now(), "CSV", "chase", "0".repeat(64), null,
                     LocalDate.of(2026, 8, 3), LocalDate.of(2026, 9, 2), 0, 0, 0);
         }
 
