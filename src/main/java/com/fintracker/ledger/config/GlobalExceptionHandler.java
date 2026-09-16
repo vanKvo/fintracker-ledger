@@ -1,6 +1,12 @@
 package com.fintracker.ledger.config;
 
 import com.fintracker.ledger.bill.exception.BillNotFoundException;
+import com.fintracker.ledger.category.exception.CategoryAlreadyExistsException;
+import com.fintracker.ledger.category.exception.CategoryInUseException;
+import com.fintracker.ledger.category.exception.CategoryLimitExceededException;
+import com.fintracker.ledger.category.exception.CategoryNotFoundException;
+import com.fintracker.ledger.category.exception.InvalidCategoryNameException;
+import com.fintracker.ledger.category.exception.SystemCategoryImmutableException;
 import com.fintracker.ledger.budget.exception.DuplicateCategoryException;
 import com.fintracker.ledger.budget.exception.DuplicateTemplateException;
 import com.fintracker.ledger.budget.exception.HistoricalBudgetException;
@@ -181,6 +187,69 @@ public class GlobalExceptionHandler {
         detail.setProperty("existingStatementId", ex.getExistingStatementId());
         detail.setProperty("existingUploadDate", ex.getExistingUploadDate());
         detail.setProperty("existingTransactionCount", ex.getExistingTransactionCount());
+        return detail;
+    }
+
+    // --- REQ-TS-01: Categories (ledger-transaction-spec-01.md's Error Handling table) ---
+
+    @ExceptionHandler(InvalidCategoryNameException.class)
+    public ProblemDetail handleInvalidCategoryName(InvalidCategoryNameException ex) {
+        log.warn("Invalid category name: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("invalid-category-name"));
+        detail.setTitle("Invalid Category Name");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(CategoryAlreadyExistsException.class)
+    public ProblemDetail handleCategoryAlreadyExists(CategoryAlreadyExistsException ex) {
+        log.warn("Category name collision: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        detail.setType(PROBLEM_BASE.resolve("category-already-exists"));
+        detail.setTitle("Category Already Exists");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(CategoryNotFoundException.class)
+    public ProblemDetail handleCategoryNotFound(CategoryNotFoundException ex) {
+        log.warn("Category not found: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        detail.setType(PROBLEM_BASE.resolve("category-not-found"));
+        detail.setTitle("Category Not Found");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(SystemCategoryImmutableException.class)
+    public ProblemDetail handleSystemCategoryImmutable(SystemCategoryImmutableException ex) {
+        log.warn("Attempted modification of a system category: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("system-category-immutable"));
+        detail.setTitle("System Category Is Immutable");
+        detail.setDetail(ex.getMessage());
+        return detail;
+    }
+
+    @ExceptionHandler(CategoryInUseException.class)
+    public ProblemDetail handleCategoryInUse(CategoryInUseException ex) {
+        log.warn("Category deletion blocked, in use: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        detail.setType(PROBLEM_BASE.resolve("category-in-use"));
+        detail.setTitle("Category Is In Use");
+        detail.setDetail(ex.getMessage());
+        detail.setProperty("transactionCount", ex.getTransactionCount());
+        return detail;
+    }
+
+    @ExceptionHandler(CategoryLimitExceededException.class)
+    public ProblemDetail handleCategoryLimitExceeded(CategoryLimitExceededException ex) {
+        log.warn("Custom category cap exceeded: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        detail.setType(PROBLEM_BASE.resolve("category-limit-exceeded"));
+        detail.setTitle("Category Limit Exceeded");
+        detail.setDetail(ex.getMessage());
         return detail;
     }
 

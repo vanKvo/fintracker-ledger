@@ -42,6 +42,7 @@ public class JooqStatementRepository implements StatementRepository {
             field(name(SCHEMA, TABLE, "source_format")),
             field(name(SCHEMA, TABLE, "bank_id")),
             field(name(SCHEMA, TABLE, "content_hash")),
+            field(name(SCHEMA, TABLE, "content_fingerprint")),
             field(name(SCHEMA, TABLE, "opening_date")),
             field(name(SCHEMA, TABLE, "closing_date"))
     );
@@ -65,6 +66,26 @@ public class JooqStatementRepository implements StatementRepository {
                         field(name(SCHEMA, TABLE, "account_id")).eq(accountId)
                                 .and(field(name(SCHEMA, TABLE, "statement_month")).eq(statementMonth)))
                 .stream().findFirst();
+    }
+
+    @Override
+    public Optional<Statement> findByAccountIdAndContentFingerprint(UUID accountId, String contentFingerprint) {
+        return selectWithCounts(
+                        field(name(SCHEMA, TABLE, "account_id")).eq(accountId)
+                                .and(field(name(SCHEMA, TABLE, "content_fingerprint")).eq(contentFingerprint)))
+                .stream().findFirst();
+    }
+
+    @Override
+    public boolean updateContentFingerprint(UUID statementId, UUID userId, String contentFingerprint) {
+        // user_id is in the WHERE clause, not merely relied upon via RLS: the update must be a
+        // no-op (0 rows) rather than an error when the statement belongs to someone else, so the
+        // caller can turn that into a 404 without leaking whether the id exists at all.
+        return dsl.update(table(name(SCHEMA, TABLE)))
+                .set(field(name("content_fingerprint")), contentFingerprint)
+                .where(field(name("statement_id")).eq(statementId))
+                .and(field(name("user_id")).eq(userId))
+                .execute() > 0;
     }
 
     /**
@@ -172,6 +193,7 @@ public class JooqStatementRepository implements StatementRepository {
                                 field(name("source_format"), String.class),
                                 field(name("bank_id"), String.class),
                                 field(name("content_hash"), String.class),
+                                field(name("content_fingerprint"), String.class),
                                 field(name("opening_date"), LocalDate.class),
                                 field(name("closing_date"), LocalDate.class))
                         .fetchOne(this::mapToStatement),
@@ -193,6 +215,7 @@ public class JooqStatementRepository implements StatementRepository {
                 record.get("source_format", String.class),
                 record.get("bank_id", String.class),
                 record.get("content_hash", String.class),
+                record.get("content_fingerprint", String.class),
                 record.get("opening_date", LocalDate.class),
                 record.get("closing_date", LocalDate.class),
                 0, 0, 0);
@@ -210,6 +233,7 @@ public class JooqStatementRepository implements StatementRepository {
                 record.get("source_format", String.class),
                 record.get("bank_id", String.class),
                 record.get("content_hash", String.class),
+                record.get("content_fingerprint", String.class),
                 record.get("opening_date", LocalDate.class),
                 record.get("closing_date", LocalDate.class),
                 record.get("tx_count", Integer.class),

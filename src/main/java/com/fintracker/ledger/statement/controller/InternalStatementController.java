@@ -2,9 +2,14 @@ package com.fintracker.ledger.statement.controller;
 
 import com.fintracker.ledger.account.repository.AccountRepository;
 import com.fintracker.ledger.statement.dto.DuplicateCheckResponse;
+import com.fintracker.ledger.statement.dto.RecordContentFingerprintRequest;
 import com.fintracker.ledger.statement.service.StatementService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -60,19 +65,34 @@ public class InternalStatementController {
             throw new IllegalArgumentException(
                     "Exactly one of contentHash or contentFingerprint must be provided.");
         }
-        if (hasContentFingerprint) {
-            // REQ-STMT-04's aggregate content fingerprint has no storage on this service
-            // yet; reject explicitly rather than silently answering a different question.
-            throw new IllegalArgumentException(
-                    "contentFingerprint duplicate checks are not supported by this service yet.");
-        }
-
-        // statementMonth is omitted — this internal query is only ever about content.
-        var result = statementService.checkForDuplicateByContentHash(accountId, contentHash, null);
+        // REQ-STMT-04 / REQ-STMT-08: the Gatekeeper calls this endpoint at two different pipeline
+        // stages — right after upload with its recomputed contentHash, and again after parsing
+        // with the aggregate contentFingerprint. Each call answers exactly the question it was
+        // asked. statementMonth is omitted from the hash branch: this internal query is only ever
+        // about content, never about the month rule.
+        var result = hasContentFingerprint
+                ? statementService.checkForDuplicateByContentFingerprint(accountId, contentFingerprint)
+                : statementService.checkForDuplicateByContentHash(accountId, contentHash, null);
         return ResponseEntity.ok(result
                 .map(match -> new DuplicateCheckResponse(true, match.matchType().name(),
                         match.existingStatementId(), match.existingUploadDate(),
                         match.existingTransactionCount()))
                 .orElseGet(() -> new DuplicateCheckResponse(false, null, null, null, null)));
+    }
+
+    /**
+     * REQ-STMT-04: stores the aggregate fingerprint once the pipeline has read the file. There is
+     * no other write path for this value — it cannot be known at upload time, which is the whole
+     * reason this check happens mid-processing rather than up front.
+     */
+    @PatchMapping("/{id}/content-fingerprint")
+    public ResponseEntity<Void> recordContentFingerprint(
+            @PathVariable UUID id,
+            @Valid @RequestBody RecordContentFingerprintRequest request,
+            @RequestAttribute("userId") UUID userId) {
+        // Ownership is enforced inside the service, scoped into the UPDATE itself rather than
+        // checked separately first, so there is no window between the check and the write.
+        statementService.recordContentFingerprint(id, userId, request.contentFingerprint());
+        return ResponseEntity.noContent().build();
     }
 }

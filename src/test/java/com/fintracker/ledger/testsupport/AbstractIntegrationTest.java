@@ -41,7 +41,7 @@ import java.sql.Statement;
  */
 @SpringBootTest
 // The "test" profile is what supplies ledger.internal.allowed-caller-arns (see the
-// local/test profile document in application.yml): in every other profile that
+// dev/test profile document in application.yml): in every other profile that
 // allow-list defaults to empty, which is a startup failure by design — so integration
 // tests that boot the whole context must run under a profile that names a caller ARN.
 @ActiveProfiles("test")

@@ -39,6 +39,27 @@ public interface StatementService {
     Optional<DuplicateCheckResult> checkForDuplicateByContentHash(
             UUID accountId, String contentHash, LocalDate statementMonth);
 
+    /**
+     * REQ-STMT-04: records the aggregate fingerprint the data-pipeline computed once it had
+     * read the whole file. Scoped by userId — the pipeline is trusted to write fingerprints,
+     * not to nominate which tenant's statement receives one.
+     *
+     * @throws com.fintracker.ledger.statement.exception.StatementNotFoundException
+     *         if no statement with that id belongs to that user
+     */
+    void recordContentFingerprint(UUID statementId, UUID userId, String contentFingerprint);
+
+    /**
+     * REQ-STMT-04 check, run by the data-pipeline mid-processing once the fingerprint is known.
+     * Deliberately a separate method from checkForDuplicateByContentHash rather than an overload:
+     * by this stage EXACT_FILE and SAME_MONTH have already been decided at initiateUpload time,
+     * so there is no specificity ladder here — a match is always CONTENT_FINGERPRINT.
+     * Throws nothing; a match is a "probably the same, please confirm" signal for the caller to
+     * act on, never an error the Ledger raises on its own.
+     */
+    Optional<DuplicateCheckResult> checkForDuplicateByContentFingerprint(
+            UUID accountId, String contentFingerprint);
+
     record DuplicateCheckResult(
             DuplicateStatementException.MatchType matchType, UUID existingStatementId,
             OffsetDateTime existingUploadDate, int existingTransactionCount) {}

@@ -88,13 +88,14 @@ class StatementServiceTest {
         accountId = UUID.randomUUID();
     }
 
-    // Record shape per REQ-STMT-07: ..., bankId, contentHash, openingDate, closingDate, counts.
+    // Record shape: ..., bankId, contentHash, contentFingerprint (REQ-STMT-04),
+    // openingDate, closingDate, counts.
     // contentHash is a placeholder here — the repository is mocked and keyed on the queried hash,
     // so the value carried back on the match is never what these assertions turn on.
     private Statement existingStatement(UUID statementId, LocalDate statementMonth, int txCount) {
         return new Statement(statementId, accountId, "statements/x/y/z.csv", statementMonth,
                 Statement.StatementStatus.COMPLETED, "desc", OffsetDateTime.parse("2026-08-27T10:15:00Z"),
-                "CSV", "chase", "0".repeat(64),
+                "CSV", "chase", "0".repeat(64), null,
                 statementMonth.withDayOfMonth(3), statementMonth.withDayOfMonth(28),
                 txCount, 0, txCount);
     }

@@ -17,6 +17,10 @@ public record Statement(
         // REQ-STMT-03: SHA-256 of the uploaded file's exact contents — the basis for the
         // exact-file duplicate check on the NEXT upload.
         String contentHash,
+        // REQ-STMT-04: aggregate fingerprint of the statement's whole transaction set, written by
+        // the data-pipeline once it has read the file. NULL until then, and NULL forever on a
+        // statement whose processing never completed.
+        String contentFingerprint,
         // REQ-STMT-07: user-declared statement period, collected for every source format.
         // statementMonth above is derived from closingDate by the database (V16 generated
         // column), never supplied by a caller.
