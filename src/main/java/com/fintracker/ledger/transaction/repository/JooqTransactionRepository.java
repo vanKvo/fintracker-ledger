@@ -355,6 +355,24 @@ public class JooqTransactionRepository implements TransactionRepository {
         );
     }
 
+    @Override
+    public long countByCategoryIdAndUserId(UUID categoryId, UUID userId) {
+        return dsl.selectCount()
+                .from(table(name(SCHEMA, TX_TABLE)))
+                .where(field(name(SCHEMA, TX_TABLE, "category_id")).eq(categoryId))
+                .and(field(name(SCHEMA, TX_TABLE, "user_id")).eq(userId))
+                .fetchOne(0, Long.class);
+    }
+
+    @Override
+    public void reassignCategory(UUID oldCategoryId, UUID newCategoryId, UUID userId) {
+        dsl.update(table(name(SCHEMA, TX_TABLE)))
+                .set(field(name("category_id"), UUID.class), newCategoryId)
+                .where(field(name(SCHEMA, TX_TABLE, "category_id")).eq(oldCategoryId))
+                .and(field(name(SCHEMA, TX_TABLE, "user_id")).eq(userId))
+                .execute();
+    }
+
     private Transaction mapToTransaction(org.jooq.Record record) {
         return new Transaction(
                 record.get("transaction_id", UUID.class),

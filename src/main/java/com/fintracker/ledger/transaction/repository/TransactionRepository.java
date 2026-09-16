@@ -62,4 +62,13 @@ public interface TransactionRepository {
      */
     Map<LocalDate, Map<String, BigDecimal>> sumExpensesByMonthAndCategory(
             UUID userId, LocalDate rangeStart, LocalDate rangeEnd);
+
+    /** REQ-TS-01 #6 — backs the category-deletion usage check. Operates on
+     * {@code transactions.category_id} directly; the domain {@link Transaction} record does not
+     * expose this column (see ledger-transaction-tests-01.md's scope boundary). */
+    long countByCategoryIdAndUserId(UUID categoryId, UUID userId);
+
+    /** REQ-TS-01 #6 — moves every transaction referencing {@code oldCategoryId} to
+     * {@code newCategoryId} before the old category is deleted. */
+    void reassignCategory(UUID oldCategoryId, UUID newCategoryId, UUID userId);
 }
