@@ -22,10 +22,14 @@ spring:
     locations: classpath:db/migration
 
 aws:
-  region: ${AWS_REGION:us-east-1}
+  region: ${AWS_REGION}
   s3:
     statements-bucket: ${STATEMENTS_BUCKET_NAME}
     presigned-url-expiry-minutes: 15
+    # aws.s3.endpoint-override does not exist in this document on purpose — see
+    # S3PresignerConfig.productionS3Presigner, which has no parameter for it at all. It is
+    # declared only in the dev/test profile document below, read only by
+    # S3PresignerConfig.localS3Presigner, which is gated to the dev/test profiles.
 
 ledger:
   internal:
@@ -36,7 +40,7 @@ ledger:
     # allow-list is a startup failure, not a permissive default. A placeholder dev role
     # exists only under the local/test profile document at the bottom of this file, so
     # no real deployment can ever pick it up by forgetting to set the variable.
-    allowed-caller-arns: ${LEDGER_INTERNAL_ALLOWED_CALLER_ARNS:}
+    allowed-caller-arns: ${LEDGER_INTERNAL_ALLOWED_CALLER_ARNS}
 
 server:
   port: 8081
@@ -74,20 +78,23 @@ resilience4j:
 
 ---
 # Local development and the automated test suite only. The placeholder dispatcher role
-# below exists so `spring.profiles.active=local` (dev machines) and @ActiveProfiles("test")
-# (integration tests) boot without exporting LEDGER_INTERNAL_ALLOWED_CALLER_ARNS; in any
-# other profile the base document above leaves the allow-list empty, which is a startup
-# failure — a deployment without the variable set refuses to start rather than running
-# with a placeholder (or open) internal gate.
+# below exists so `spring.profiles.active=dev` (dev machines, via docker-compose.yml) and
+# @ActiveProfiles("test") (integration tests, run by Maven — never through docker-compose)
+# boot without exporting LEDGER_INTERNAL_ALLOWED_CALLER_ARNS; in any other profile the base
+# document above leaves the allow-list empty, which is a startup failure — a deployment
+# without the variable set refuses to start rather than running with a placeholder (or
+# open) internal gate. 
+# dev = "someone's running the app" (locally via Maven or in the docker-compose container)
+# test = "the build is running the test suite" (ephemeral Testcontainers Postgres, no real infra involved either way)
 spring:
   config:
     activate:
-      on-profile: local,test
+      on-profile: dev,test
 aws:
   s3:
     # Same rationale as the dispatcher-role default below: the base document above
     # declares `statements-bucket: ${STATEMENTS_BUCKET_NAME}` with NO fallback, so any
-    # profile other than local/test refuses to start without a real bucket configured —
+    # profile other than dev/test refuses to start without a real bucket configured —
     # which is what we want for a deployment. But that also meant `mvn verify` could not
     # run standalone: every integration test booting a full context (i.e. all of them
     # except the ones that @MockitoBean S3PresignService away) died in bean creation with
@@ -95,6 +102,11 @@ aws:
     # The suite must not depend on the developer having exported ambient AWS variables
     # first; no test here ever calls S3, it only needs the bean to construct.
     statements-bucket: ${STATEMENTS_BUCKET_NAME:test-statements-bucket}
+    # Read only by S3PresignerConfig.localS3Presigner (dev/test profiles only — see that
+    # class). Defaults to the standard local LocalStack address so `mvn test` boots the bean
+    # without requiring AWS_S3_ENDPOINT_OVERRIDE to be exported first, same rationale as
+    # statements-bucket above.
+    endpoint-override: ${AWS_S3_ENDPOINT_OVERRIDE:http://localhost:4566}
 
 ledger:
   internal:

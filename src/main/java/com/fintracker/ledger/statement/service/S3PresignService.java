@@ -2,7 +2,6 @@ package com.fintracker.ledger.statement.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
@@ -31,16 +30,17 @@ public class S3PresignService {
     private final String bucketName;
     private final Duration expiry;
 
+    // Which S3 endpoint/credentials this talks to (real AWS vs. local LocalStack) is decided
+    // entirely by which S3Presigner bean is active — see S3PresignerConfig. This class has no
+    // environment-specific branching of its own.
     public S3PresignService(
+            S3Presigner presigner,
             @Value("${aws.s3.statements-bucket}") String bucketName,
-            @Value("${aws.s3.presigned-url-expiry-minutes}") long expiryMinutes,
-            @Value("${aws.region}") String region
+            @Value("${aws.s3.presigned-url-expiry-minutes}") long expiryMinutes
     ) {
+        this.presigner = presigner;
         this.bucketName = bucketName;
         this.expiry = Duration.ofMinutes(expiryMinutes);
-        this.presigner = S3Presigner.builder()
-                .region(software.amazon.awssdk.regions.Region.of(region))
-                .build();
     }
 
     /**
@@ -82,5 +82,9 @@ public class S3PresignService {
         return fileName.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
+    // PresignedUpload is s an internal return value shared between 
+    // exactly one producer (S3PresignService) and one consumer (StatementServiceImpl) within the same feature package 
+    // It's implementation detail, not a contract.
+    // Record classes in /dto belong to a controller request/response body, not an internal service-to-service contract.
     public record PresignedUpload(String url, String s3ObjectKey) {}
 }

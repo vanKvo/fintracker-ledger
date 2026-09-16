@@ -1,3 +1,12 @@
+# Pinned so this file always resolves to the same Compose project — and therefore the same
+# image/container names — whether it's run standalone from here or included by the root
+# docker-compose.yml. Without this, Compose derives the project name from the current
+# directory, so "docker compose up" from the repo root produces a DIFFERENT image
+# ("fintracker-ledger") than running it from inside this directory ("fintracker-ledger-ledger")
+# — two stale, silently-diverging copies of the same service that can end up running
+# side by side, with whichever one you happen to `docker logs`/rebuild not being the one
+# actually bound to port 8081. The root docker-compose.yml relies on this same value.
+name: fintracker
 services:
   # Postgres is NOT defined here. This service connects to a shared local Postgres
   # container (`postgres_db`) that also serves other, unrelated local projects —
@@ -10,6 +19,17 @@ services:
     ports:
       - "8081:8081"
     environment:
+      SPRING_PROFILES_ACTIVE: dev
       DB_URL: jdbc:postgresql://host.docker.internal:5432/fintracker
       DB_USERNAME: postgres
       DB_PASSWORD: mysecretpassword
+      AWS_REGION: us-east-1
+      # Deliberately "localhost", not "host.docker.internal" (unlike DB_URL above): this value
+      # is only ever embedded as text into the presigned URL returned to the browser — the
+      # signing JVM never actually connects to it. The browser runs on the host and does the
+      # real PUT directly to this URL (see statement.service.ts uploadToS3), so it must resolve
+      # from the host's own network, not from inside the container's network namespace.
+      AWS_S3_ENDPOINT_OVERRIDE: http://localhost:4566
+      # Matches the .env value used by the mvn spring-boot:run path, so both ways of
+      # running the service locally share the same LocalStack bucket.
+      STATEMENTS_BUCKET_NAME: statement-bucket-dev
