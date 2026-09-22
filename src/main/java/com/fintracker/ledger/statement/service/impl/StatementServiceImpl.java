@@ -5,6 +5,7 @@ import com.fintracker.ledger.statement.dto.InitiateStatementUploadRequest;
 import com.fintracker.ledger.statement.dto.StatementUploadResponse;
 import com.fintracker.ledger.statement.exception.DuplicateStatementException;
 import com.fintracker.ledger.statement.model.Statement;
+import com.fintracker.ledger.statement.model.StatementOwner;
 import com.fintracker.ledger.statement.repository.StatementRepository;
 import com.fintracker.ledger.statement.service.S3PresignService;
 import com.fintracker.ledger.statement.service.StatementService;
@@ -242,5 +243,10 @@ public class StatementServiceImpl implements StatementService {
         }
 
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<StatementOwner> findStatementOwner(UUID statementId) {
+        return statementRepository.findOwnerByStatementId(statementId);
     }
 }

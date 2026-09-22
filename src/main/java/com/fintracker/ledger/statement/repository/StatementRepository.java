@@ -1,6 +1,7 @@
 package com.fintracker.ledger.statement.repository;
 
 import com.fintracker.ledger.statement.model.Statement;
+import com.fintracker.ledger.statement.model.StatementOwner;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -12,6 +13,14 @@ public interface StatementRepository {
     List<Statement> findAllByUserId(UUID userId);
 
     Optional<Statement> findByIdAndUserId(UUID statementId, UUID userId);
+
+    /**
+     * REQ-DP-05: the statement's actual owner, looked up by statement_id alone. Unlike every
+     * other read on this interface, this is deliberately NOT scoped by a caller-supplied
+     * userId — the Data Pipeline calls this specifically because it does not yet know who the
+     * real owner is (it previously trusted S3 object metadata tags for that instead).
+     */
+    Optional<StatementOwner> findOwnerByStatementId(UUID statementId);
 
     void updateStatus(UUID statementId, Statement.StatementStatus status);
 

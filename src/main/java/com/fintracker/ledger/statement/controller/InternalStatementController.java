@@ -3,6 +3,8 @@ package com.fintracker.ledger.statement.controller;
 import com.fintracker.ledger.account.repository.AccountRepository;
 import com.fintracker.ledger.statement.dto.DuplicateCheckResponse;
 import com.fintracker.ledger.statement.dto.RecordContentFingerprintRequest;
+import com.fintracker.ledger.statement.dto.StatementOwnerResponse;
+import com.fintracker.ledger.statement.exception.StatementNotFoundException;
 import com.fintracker.ledger.statement.service.StatementService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -78,6 +80,30 @@ public class InternalStatementController {
                         match.existingStatementId(), match.existingUploadDate(),
                         match.existingTransactionCount()))
                 .orElseGet(() -> new DuplicateCheckResponse(false, null, null, null, null)));
+    }
+
+    /**
+     * REQ-DP-05: the Data Pipeline's S3 trigger calls this immediately after an upload lands,
+     * BEFORE it knows who the statement belongs to — that is the whole reason this endpoint
+     * exists, replacing the old approach of trusting user-id/account-id tags set on the S3
+     * object at upload time (those tags are attacker- or bug-controlled the same way a
+     * request-body id is; this is not).
+     *
+     * <p>Deliberately does NOT use {@code @RequestAttribute("userId")} to scope the lookup,
+     * unlike every other method on this controller. {@code UserContextFilter} still runs on
+     * this route (it is not scoped per-endpoint) and still requires a syntactically valid
+     * {@code X-Internal-User-Id} header, but this endpoint's whole job is to answer "who owns
+     * this statement" — the caller asserting an identity would be backwards. The real access
+     * control here is {@code InternalCallerFilter}'s caller-ARN allow-list, exactly like every
+     * other {@code /internal/*} route; a caller that passes that gate is trusted to ask this
+     * question about any statement_id, since the answer is what establishes identity for the
+     * rest of that pipeline run, not something the caller already had.
+     */
+    @GetMapping("/{id}/owner")
+    public ResponseEntity<StatementOwnerResponse> getOwner(@PathVariable UUID id) {
+        var owner = statementService.findStatementOwner(id)
+                .orElseThrow(() -> new StatementNotFoundException(id));
+        return ResponseEntity.ok(new StatementOwnerResponse(id, owner.accountId(), owner.userId()));
     }
 
     /**

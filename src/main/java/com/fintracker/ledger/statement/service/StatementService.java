@@ -4,6 +4,7 @@ import com.fintracker.ledger.statement.dto.InitiateStatementUploadRequest;
 import com.fintracker.ledger.statement.dto.StatementUploadResponse;
 import com.fintracker.ledger.statement.exception.DuplicateStatementException;
 import com.fintracker.ledger.statement.model.Statement;
+import com.fintracker.ledger.statement.model.StatementOwner;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -59,6 +60,14 @@ public interface StatementService {
      */
     Optional<DuplicateCheckResult> checkForDuplicateByContentFingerprint(
             UUID accountId, String contentFingerprint);
+
+    /**
+     * REQ-DP-05: the Data Pipeline's S3 trigger calls this before it knows who a statement
+     * belongs to — that is the whole reason it exists, replacing the old approach of trusting
+     * user-id/account-id tags set on the S3 object at upload time. Not scoped by a caller
+     * userId; see StatementRepository#findOwnerByStatementId.
+     */
+    Optional<StatementOwner> findStatementOwner(UUID statementId);
 
     record DuplicateCheckResult(
             DuplicateStatementException.MatchType matchType, UUID existingStatementId,

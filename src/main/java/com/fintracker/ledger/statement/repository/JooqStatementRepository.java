@@ -1,6 +1,7 @@
 package com.fintracker.ledger.statement.repository;
 
 import com.fintracker.ledger.statement.model.Statement;
+import com.fintracker.ledger.statement.model.StatementOwner;
 import com.fintracker.ledger.transaction.model.Transaction;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -133,6 +134,43 @@ public class JooqStatementRepository implements StatementRepository {
                 .where(field("statement_id").eq(statementId))
                 .and(field("user_id").eq(userId))
                 .fetchOptional(this::mapToStatement);
+    }
+
+    @Override
+    public Optional<StatementOwner> findOwnerByStatementId(UUID statementId) {
+        // No userId in the WHERE clause — deliberately, see the interface's own doc comment.
+        // account_id/user_id are both plain columns on this table already (findByIdAndUserId
+        // above filters on user_id directly), so this needs no join to the accounts table.
+        //
+        // ledger.statements FORCE-enables RLS (V3), so statements_isolation's
+        // `user_id = current_setting('app.current_user_id', true)::uuid` applies even here —
+        // and can never pass, since by definition no user_id is known yet (that's the whole
+        // point of this lookup). V20 adds a narrow, separately-gated permissive policy
+        // (app.internal_owner_lookup) just for this one SELECT; set/reset it on this exact
+        // connection around the query, the same pattern RlsExecuteListener uses for
+        // app.current_user_id, rather than depending on the generic per-request identity.
+        return dsl.connectionResult(conn -> {
+            try (var set = conn.prepareStatement(
+                    "SELECT set_config('app.internal_owner_lookup', 'true', false)")) {
+                set.execute();
+            }
+            try {
+                return using(conn)
+                        .select(field(name("account_id"), UUID.class), field(name("user_id"), UUID.class))
+                        .from(table(name(SCHEMA, TABLE)))
+                        .where(field(name("statement_id")).eq(statementId))
+                        .fetchOptional(r -> new StatementOwner(
+                                r.get(field(name("account_id"), UUID.class)),
+                                r.get(field(name("user_id"), UUID.class))));
+            } finally {
+                // Reset so a pooled connection never leaves this flag on for a later,
+                // unrelated query — same reasoning as RlsExecuteListener.end().
+                try (var reset = conn.prepareStatement("RESET app.internal_owner_lookup")) {
+                    reset.execute();
+                } catch (java.sql.SQLException ignored) {
+                }
+            }
+        });
     }
 
     @Override
