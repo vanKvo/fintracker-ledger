@@ -23,9 +23,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * REQ-STMT-02/03: the internal service-to-service routes, exercised through MockMvc with the
- * real filter chain and a real Postgres — the security boundary is the point of these tests,
- * so nothing below the filters is mocked away:
+ * REQ-STMT-02/03, REQ-DP-05: the internal service-to-service routes, exercised through MockMvc
+ * with the real filter chain and a real Postgres — the security boundary is the point of these
+ * tests, so nothing below the filters is mocked away:
  *
  *   1. Every route under {@code /api/v1/ledger/**&#47;internal/**} requires BOTH the edge-verified
  *      caller ARN ({@code X-Internal-Caller-Arn}, on the deployed allow-list) AND an internal
@@ -37,6 +37,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   3. The internal duplicate check answers the Gatekeeper's question against live data,
  *      is scoped by the {@code X-Internal-User-Id} (another tenant's account is a 400, not
  *      an oracle), and rejects ambiguous calls (both/neither hash parameter) with 400.
+ *   4. REQ-DP-05's owner lookup returns the statement's REAL owner even though the caller
+ *      asserts an unrelated/sentinel identity — this is the one route that must NOT be scoped
+ *      by {@code X-Internal-User-Id}, and it is also the regression test for a real bug found
+ *      while building it: {@code ledger.statements} FORCE-enables Row-Level Security (V3), so
+ *      without V20's dedicated {@code app.internal_owner_lookup} policy this endpoint would
+ *      silently 404 for every real statement rather than erroring loudly.
  *
  * The allow-list value used here is application.yml's local-dev default; the assertions are
  * about listed-vs-unlisted, not about any particular production ARN.
@@ -50,6 +56,12 @@ class InternalApiSecurityIT extends AbstractIntegrationTest {
     private static final String USER_HEADER = "X-Internal-User-Id";
     private static final String ALLOWED_ARN = "arn:aws:iam::000000000000:role/local-dev-dispatcher";
     private static final String FOREIGN_ARN = "arn:aws:iam::999999999999:role/some-other-service";
+    // REQ-DP-05: the sentinel the Data Pipeline's ledger_client.py actually sends as
+    // X-Internal-User-Id for the owner-lookup call — it does not know the real user yet, so it
+    // must never assert one. See InternalStatementController#getOwner's own doc comment for why
+    // that is fine: this route's real access control is the caller-ARN allow-list, not this
+    // header, which the endpoint ignores.
+    private static final String UNKNOWN_CALLER_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
     @Autowired
     private MockMvc mockMvc;
@@ -266,6 +278,53 @@ class InternalApiSecurityIT extends AbstractIntegrationTest {
                         .param("accountId", foreignAccountId.toString())
                         .param("contentHash", "9".repeat(64)))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ---- REQ-DP-05: the internal statement-owner lookup ----
+
+    @Test
+    @DisplayName("owner lookup without a caller ARN is 401, same gate as every other internal route")
+    void ownerLookupMissingCallerArnIs401() throws Exception {
+        var statementId = insertStatementAsSuperuser(insertAccountAsSuperuser(UUID.randomUUID()));
+
+        mockMvc.perform(get(ownerPath(statementId))
+                        .header(USER_HEADER, UNKNOWN_CALLER_SENTINEL))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value(endsWith("/problems/missing-internal-caller")));
+    }
+
+    @Test
+    @DisplayName("a legitimate caller gets back the real owner — proving the lookup actually "
+            + "reads the row despite ledger.statements' FORCE ROW LEVEL SECURITY, not just that "
+            + "the route is reachable")
+    void ownerLookupReturnsTheRealOwner() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var accountId = insertAccountAsSuperuser(ownerId);
+        var statementId = insertStatementAsSuperuser(accountId);
+
+        // The caller asserts UNKNOWN_CALLER_SENTINEL as its own identity — nothing close to
+        // ownerId — which is the whole point: this route answers who owns it FROM the data,
+        // never from what the caller claims.
+        mockMvc.perform(get(ownerPath(statementId))
+                        .header(CALLER_ARN_HEADER, ALLOWED_ARN)
+                        .header(USER_HEADER, UNKNOWN_CALLER_SENTINEL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statementId").value(statementId.toString()))
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()))
+                .andExpect(jsonPath("$.userId").value(ownerId.toString()));
+    }
+
+    @Test
+    @DisplayName("owner lookup for a nonexistent statement is 404")
+    void ownerLookupForUnknownStatementIs404() throws Exception {
+        mockMvc.perform(get(ownerPath(UUID.randomUUID()))
+                        .header(CALLER_ARN_HEADER, ALLOWED_ARN)
+                        .header(USER_HEADER, UNKNOWN_CALLER_SENTINEL))
+                .andExpect(status().isNotFound());
+    }
+
+    private String ownerPath(UUID statementId) {
+        return "/api/v1/ledger/statements/internal/%s/owner".formatted(statementId);
     }
 
     // ---- helpers ----
