@@ -132,7 +132,8 @@ class InternalCallerFilterTest {
         void registeredAgainstInternalUrlPrefixesOnly() {
             assertThat(registration().getUrlPatterns()).containsExactlyInAnyOrder(
                     "/api/v1/ledger/transactions/internal/*",
-                    "/api/v1/ledger/statements/internal/*");
+                    "/api/v1/ledger/statements/internal/*",
+                    "/api/v1/ledger/categories/internal/*");
         }
 
         @Test
