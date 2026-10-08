@@ -400,9 +400,9 @@ class TransactionServiceTest {
             when(transactionRepository.findByIdAndUserId(txId, userId))
                     .thenReturn(Optional.of(pendingTransaction(txId, null)));
 
-            transactionService.updateCategory(txId, "Dining", userId);
+            transactionService.updateCategory(txId, "Food & Drink", userId);
 
-            verify(transactionRepository).updateCategory(txId, "Dining");
+            verify(transactionRepository).updateCategory(txId, "Food & Drink");
         }
 
         @Test

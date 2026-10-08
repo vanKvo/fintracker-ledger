@@ -35,7 +35,7 @@ class JooqCategoryRepositoryIT extends AbstractIntegrationTest {
     private CategoryRepository categoryRepository;
 
     @Test
-    @DisplayName("migration seed: exactly 17 SYSTEM-level categories exist, including GROCERIES and OTHERS")
+    @DisplayName("migration seed: exactly 17 SYSTEM-level categories exist, including GROCERIES and UNCATEGORIZED")
     void migrationSeedsTheSeventeenSystemCategories() {
         var systemCategories = categoryRepository.findAllAccessibleToUser(UUID.randomUUID()).stream()
                 .filter(c -> c.level() == Category.Level.SYSTEM)
@@ -43,7 +43,7 @@ class JooqCategoryRepositoryIT extends AbstractIntegrationTest {
 
         assertThat(systemCategories).hasSize(17);
         assertThat(systemCategories).extracting(Category::categoryName)
-                .contains("groceries", "others");
+                .contains("groceries", "uncategorized");
         assertThat(systemCategories).allMatch(c -> c.userId() == null);
     }
 
