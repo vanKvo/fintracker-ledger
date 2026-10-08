@@ -3,6 +3,7 @@ package com.fintracker.ledger.config;
 import com.fintracker.ledger.bill.exception.BillNotFoundException;
 import com.fintracker.ledger.category.exception.CategoryAlreadyExistsException;
 import com.fintracker.ledger.category.exception.CategoryInUseException;
+import com.fintracker.ledger.category.exception.InternalUserMismatchException;
 import com.fintracker.ledger.category.exception.CategoryLimitExceededException;
 import com.fintracker.ledger.category.exception.CategoryNotFoundException;
 import com.fintracker.ledger.category.exception.InvalidCategoryNameException;
@@ -240,6 +241,16 @@ public class GlobalExceptionHandler {
         detail.setTitle("Category Is In Use");
         detail.setDetail(ex.getMessage());
         detail.setProperty("transactionCount", ex.getTransactionCount());
+        return detail;
+    }
+
+    @ExceptionHandler(InternalUserMismatchException.class)
+    public ProblemDetail handleInternalUserMismatch(InternalUserMismatchException ex) {
+        log.warn("Internal category read refused: {}", ex.getMessage());
+        var detail = ProblemDetail.forStatus(HttpStatus.FORBIDDEN);
+        detail.setType(PROBLEM_BASE.resolve("internal-user-mismatch"));
+        detail.setTitle("User Mismatch");
+        detail.setDetail("The requested user does not match the caller's user.");
         return detail;
     }
 

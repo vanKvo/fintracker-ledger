@@ -40,7 +40,8 @@ public class InternalCallerFilterConfig {
         var registration = new FilterRegistrationBean<>(new InternalCallerFilter(allowedCallerArns));
         registration.addUrlPatterns(
                 "/api/v1/ledger/transactions/internal/*",
-                "/api/v1/ledger/statements/internal/*");
+                "/api/v1/ledger/statements/internal/*",
+                "/api/v1/ledger/categories/internal/*");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
     }
