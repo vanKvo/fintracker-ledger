@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -26,6 +27,32 @@ class JooqStatementRepositoryIT extends AbstractIntegrationTest {
 
     @Autowired
     private StatementRepository statementRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private org.jooq.DSLContext dsl;
+
+    @Test
+    @DisplayName("REQ-DP-05: the internal owner lookup works on a pooled connection that already served "
+            + "a user request (app.current_user_id reset to '', not unset)")
+    void ownerLookupWorksOnAConnectionReusedAfterAUserRequest() throws SQLException {
+        var owner = UUID.randomUUID();
+        var accountId = insertAccountAsSuperuser(owner);
+        var statementId = insertStatementAsSuperuser(accountId, "9".repeat(64), LocalDate.of(2026, 8, 1));
+
+        // One transaction pins one pooled connection: a user-scoped query sets and then RESETs
+        // app.current_user_id on it (RlsExecuteListener), then the owner lookup runs on the same one.
+        var found = transactionTemplate.execute(status -> {
+            dsl.execute("SELECT set_config('app.current_user_id', ?, false)", UUID.randomUUID().toString());
+            dsl.execute("RESET app.current_user_id");
+            return statementRepository.findOwnerByStatementId(statementId);
+        });
+
+        assertThat(found).isPresent();
+        assertThat(found.get().userId()).isEqualTo(owner);
+    }
 
     @Test
     @DisplayName("RLS: a statement is invisible to another user, and visible to its owner")
