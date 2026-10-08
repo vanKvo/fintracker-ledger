@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
  */
 public enum TransactionCategory {
     GROCERIES("Groceries"),
-    DINING("Dining"),
+    FOOD_AND_DRINK("Food & Drink"),
     TRANSPORTATION("Transportation"),
     SHOPPING("Shopping"),
     ENTERTAINMENT("Entertainment"),
@@ -29,7 +29,7 @@ public enum TransactionCategory {
     INCOME("Income"),
     TRANSFER("Transfer"),
     FEES("Fees"),
-    OTHERS("Others");
+    UNCATEGORIZED("Uncategorized");
 
     private final String label;
 
@@ -41,8 +41,16 @@ public enum TransactionCategory {
         return label;
     }
 
-    private static final Map<String, TransactionCategory> BY_LABEL = Arrays.stream(values())
-            .collect(Collectors.toMap(c -> c.label.toLowerCase(), c -> c));
+    private static final Map<String, TransactionCategory> BY_LABEL = byLabelWithLegacyAliases();
+
+    /** DP-LEDGER-CATEGORIES-01 renamed Dining and Others (V21); their old labels still resolve. */
+    private static Map<String, TransactionCategory> byLabelWithLegacyAliases() {
+        var byLabel = new java.util.HashMap<String, TransactionCategory>(Arrays.stream(values())
+                .collect(Collectors.toMap(c -> c.label.toLowerCase(), c -> c)));
+        byLabel.put("dining", FOOD_AND_DRINK);
+        byLabel.put("others", UNCATEGORIZED);
+        return Map.copyOf(byLabel);
+    }
 
     public static final List<String> LABELS = Arrays.stream(values())
             .map(TransactionCategory::label)
@@ -50,14 +58,14 @@ public enum TransactionCategory {
 
     /**
      * Case-insensitive match against the canonical label. Anything unrecognized — legacy
-     * free-text data, upstream ingestion quirks, typos — collapses to OTHERS rather than being
+     * free-text data, upstream ingestion quirks, typos — collapses to UNCATEGORIZED rather than being
      * rejected outright, since categorization mistakes are exactly what REQ-2.2 lets users fix
      * after the fact.
      */
     public static TransactionCategory resolve(String rawCategory) {
         if (rawCategory == null) {
-            return OTHERS;
+            return UNCATEGORIZED;
         }
-        return BY_LABEL.getOrDefault(rawCategory.trim().toLowerCase(), OTHERS);
+        return BY_LABEL.getOrDefault(rawCategory.trim().toLowerCase(), UNCATEGORIZED);
     }
 }

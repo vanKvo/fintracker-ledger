@@ -7,12 +7,13 @@ import java.util.UUID;
 /**
  * REQ-TS-01 Requested Changes #4: {@code displayName} is the Title Case, underscore-to-space
  * form of the stored {@code Category.categoryName}, computed here rather than stored.
+ * DP-LEDGER-CATEGORIES-01: {@code code} is set for SYSTEM categories only.
  */
-public record CustomCategoryResponse(UUID categoryId, String displayName, String level) {
+public record CustomCategoryResponse(UUID categoryId, String displayName, String level, String code, boolean isActive) {
 
     public static CustomCategoryResponse from(Category category) {
         return new CustomCategoryResponse(category.categoryId(), toDisplayName(category.categoryName()),
-                category.level().name());
+                category.level().name(), category.code(), category.isActive());
     }
 
     private static String toDisplayName(String normalizedName) {

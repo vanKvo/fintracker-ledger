@@ -30,7 +30,9 @@ public class JooqCategoryRepository implements CategoryRepository {
                 r.get(field(name(SCHEMA, TABLE, "category_id")), UUID.class),
                 r.get(field(name(SCHEMA, TABLE, "category_name")), String.class),
                 Category.Level.valueOf(levelStr),
-                userId);
+                userId,
+                r.get(field(name(SCHEMA, TABLE, "code")), String.class),
+                Boolean.TRUE.equals(r.get(field(name(SCHEMA, TABLE, "is_active")), Boolean.class)));
     }
 
     @Override
