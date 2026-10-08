@@ -27,8 +27,8 @@ public record ManualTransactionRequest(
         @NotBlank String category,
         List<String> tags,
         LocalDate txDate,
-        // TXT-01: EXPENSE, INCOME, REFUND, TRANSFER or ADJUSTMENT; missing defaults from direction.
-        String type,
+        // TXT-01: EXPENSE, INCOME, REFUND, TRANSFER or ADJUSTMENT; required, never defaulted.
+        @NotNull String type,
         @NotNull String direction,  // DEBIT or CREDIT
         String currency,            // ISO 4217; defaults to USD
         Boolean isRecurring,

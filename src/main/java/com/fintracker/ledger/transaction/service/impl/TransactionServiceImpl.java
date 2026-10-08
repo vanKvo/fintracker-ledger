@@ -98,16 +98,12 @@ public class TransactionServiceImpl implements TransactionService {
                 continue;
             }
             var direction = Transaction.TransactionDirection.valueOf(line.direction());
-            if (line.type() == null) {
-                log.warn("Statement row has no type; defaulting from direction statementId={} rowIndex={} direction={}",
-                        statementId, i, direction);
-            }
             rows.add(new Transaction(
                     null, statement.accountId(), statementId, null, null,
                     line.amount(), line.merchant(), line.category(), null,
                     List.of(), line.date(),
                     Transaction.TransactionSource.STATEMENT_UPLOAD,
-                    resolveType(line.type(), direction),
+                    Transaction.TransactionType.valueOf(line.type()),
                     Transaction.TransactionStatus.PENDING,
                     false, false, null, line.rowFingerprint(),
                     direction, currencyOrDefault(line.currency()), null, null));
@@ -160,7 +156,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (line.category().length() > 100) {
             return "category must be at most 100 characters";
         }
-        if (line.type() != null && !isEnumValue(Transaction.TransactionType.class, line.type())) {
+        if (line.type() == null || !isEnumValue(Transaction.TransactionType.class, line.type())) {
             return "type must be one of %s.".formatted(
                     Arrays.toString(Transaction.TransactionType.values()));
         }
@@ -168,7 +164,7 @@ public class TransactionServiceImpl implements TransactionService {
             return "direction must be one of %s.".formatted(
                     Arrays.toString(Transaction.TransactionDirection.values()));
         }
-        if (line.type() != null && !Transaction.TransactionType.valueOf(line.type())
+        if (!Transaction.TransactionType.valueOf(line.type())
                 .allows(Transaction.TransactionDirection.valueOf(line.direction()))) {
             return TYPE_DIRECTION_RULE;
         }
@@ -202,15 +198,12 @@ public class TransactionServiceImpl implements TransactionService {
         }
         var direction = Transaction.TransactionDirection.valueOf(request.direction());
 
-        if (request.type() != null && !isEnumValue(Transaction.TransactionType.class, request.type())) {
+        // TXT-01 [Fail]: a missing type is rejected (400), never defaulted.
+        if (request.type() == null || !isEnumValue(Transaction.TransactionType.class, request.type())) {
             throw new IllegalArgumentException("type must be one of %s.".formatted(
                     Arrays.toString(Transaction.TransactionType.values())));
         }
-        if (request.type() == null) {
-            log.warn("Manual transaction has no type; defaulting from direction accountId={} direction={}",
-                    request.accountId(), direction);
-        }
-        var type = resolveType(request.type(), direction);
+        var type = Transaction.TransactionType.valueOf(request.type());
         if (!type.allows(direction)) {
             throw new IllegalArgumentException(TYPE_DIRECTION_RULE);
         }
@@ -433,16 +426,6 @@ public class TransactionServiceImpl implements TransactionService {
                 parent.status(), parent.isExcluded(), parent.isManual(), null, null,
                 parent.direction(), parent.currency(), parent.isRecurring(), null
         );
-    }
-
-    /** TXT-01 [Fail]: a missing type defaults to INCOME for a credit, EXPENSE for a debit. */
-    private static Transaction.TransactionType resolveType(String type, Transaction.TransactionDirection direction) {
-        if (type != null) {
-            return Transaction.TransactionType.valueOf(type);
-        }
-        return direction == Transaction.TransactionDirection.CREDIT
-                ? Transaction.TransactionType.INCOME
-                : Transaction.TransactionType.EXPENSE;
     }
 
     private static String currencyOrDefault(String currency) {

@@ -38,8 +38,8 @@ public record BulkCreateTransactionsRequest(
             @NotNull BigDecimal amount,
             @NotNull String category,
             String subCategory,
-            // TXT-01: optional — a missing type defaults from direction (see TransactionServiceImpl).
-            @Pattern(regexp = "EXPENSE|INCOME|REFUND|TRANSFER|ADJUSTMENT") String type,
+            // TXT-01: required — a missing type is a 400, never defaulted.
+            @NotNull @Pattern(regexp = "EXPENSE|INCOME|REFUND|TRANSFER|ADJUSTMENT") String type,
             @NotNull @Pattern(regexp = "[a-f0-9]{64}") String rowFingerprint,
             @NotNull @Pattern(regexp = "DEBIT|CREDIT") String direction,
             @Pattern(regexp = "[A-Z]{3}") String currency
