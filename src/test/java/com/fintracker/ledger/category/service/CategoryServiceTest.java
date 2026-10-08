@@ -90,6 +90,25 @@ class CategoryServiceTest {
     class CreateCustomCategory {
 
         @Test
+        @DisplayName("DP-LEDGER-CATEGORIES-02: re-creating a deactivated category reactivates it, keeping its UUID")
+        void reactivatesADeactivatedCategoryWithTheSameName() {
+            var userId = UUID.randomUUID();
+            var deactivated = new Category(UUID.randomUUID(), "side_hustle", Category.Level.USER, userId, null, false);
+            when(categoryRepository.existsByNormalizedNameAccessibleToUser("side_hustle", userId)).thenReturn(false);
+            when(categoryRepository.countByUserId(userId)).thenReturn(0L);
+            when(categoryRepository.findInactiveUserCategoryByName("side_hustle", userId))
+                    .thenReturn(Optional.of(deactivated));
+            when(categoryRepository.reactivate(deactivated.categoryId()))
+                    .thenReturn(new Category(deactivated.categoryId(), "side_hustle", Category.Level.USER, userId, null, true));
+
+            var result = newService().createCustomCategory("Side Hustle", userId);
+
+            assertThat(result.categoryId()).isEqualTo(deactivated.categoryId());
+            assertThat(result.isActive()).isTrue();
+            verify(categoryRepository, never()).insert(any(), any(), any());
+        }
+
+        @Test
         @DisplayName("#3: rejects a name containing characters outside alphanumeric/space")
         void rejectsInvalidCharacters() {
             var userId = UUID.randomUUID();
@@ -344,7 +363,7 @@ class CategoryServiceTest {
             assertThatThrownBy(() -> newService().deleteCustomCategory(categoryId, attacker, null))
                     .isInstanceOf(CategoryNotFoundException.class);
 
-            verify(categoryRepository, never()).delete(any());
+            verify(categoryRepository, never()).deactivate(any());
         }
 
         @Test
@@ -358,7 +377,7 @@ class CategoryServiceTest {
             assertThatThrownBy(() -> newService().deleteCustomCategory(system.categoryId(), userId, null))
                     .isInstanceOf(SystemCategoryImmutableException.class);
 
-            verify(categoryRepository, never()).delete(any());
+            verify(categoryRepository, never()).deactivate(any());
         }
 
         @Test
@@ -368,34 +387,45 @@ class CategoryServiceTest {
             var existing = userCategory(userId, "one_off");
             when(categoryRepository.findByIdAndAccessibleToUser(existing.categoryId(), userId))
                     .thenReturn(Optional.of(existing));
-            when(transactionRepository.countByCategoryIdAndUserId(existing.categoryId(), userId))
-                    .thenReturn(0L);
 
             newService().deleteCustomCategory(existing.categoryId(), userId, null);
 
-            verify(categoryRepository).delete(existing.categoryId());
+            verify(categoryRepository).deactivate(existing.categoryId());
             verify(transactionRepository, never()).reassignCategory(any(), any(), any());
         }
 
         @Test
-        @DisplayName("#6: deleting a category with referencing transactions and no reassignment target is rejected")
-        void rejectsDeleteInUseWithoutReassignmentTarget() {
+        @DisplayName("DP-LEDGER-CATEGORIES-02: deleting an in-use category without a reassignment target "
+                + "deactivates it, and its transactions keep their category_id")
+        void deactivatesInUseCategoryWithoutReassignmentTarget() {
             var userId = UUID.randomUUID();
             var existing = userCategory(userId, "commute");
             when(categoryRepository.findByIdAndAccessibleToUser(existing.categoryId(), userId))
                     .thenReturn(Optional.of(existing));
-            when(transactionRepository.countByCategoryIdAndUserId(existing.categoryId(), userId))
-                    .thenReturn(12L);
 
-            assertThatThrownBy(() -> newService().deleteCustomCategory(existing.categoryId(), userId, null))
-                    .isInstanceOf(CategoryInUseException.class)
-                    .satisfies(ex -> assertThat(((CategoryInUseException) ex).getTransactionCount()).isEqualTo(12L));
+            newService().deleteCustomCategory(existing.categoryId(), userId, null);
 
-            verify(categoryRepository, never()).delete(any());
+            verify(categoryRepository).deactivate(existing.categoryId());
+            verify(transactionRepository, never()).reassignCategory(any(), any(), any());
         }
 
         @Test
-        @DisplayName("#6: deleting with a valid reassignment target reassigns transactions, then deletes")
+        @DisplayName("DP-LEDGER-CATEGORIES-02: the uncategorized SYSTEM category can never be deactivated")
+        void rejectsDeactivatingUncategorized() {
+            var userId = UUID.randomUUID();
+            var uncategorized = new Category(UUID.randomUUID(), "uncategorized", Category.Level.SYSTEM, null,
+                    "uncategorized", true);
+            when(categoryRepository.findByIdAndAccessibleToUser(uncategorized.categoryId(), userId))
+                    .thenReturn(Optional.of(uncategorized));
+
+            assertThatThrownBy(() -> newService().deleteCustomCategory(uncategorized.categoryId(), userId, null))
+                    .isInstanceOf(SystemCategoryImmutableException.class);
+
+            verify(categoryRepository, never()).deactivate(any());
+        }
+
+        @Test
+        @DisplayName("#6: deleting with a valid reassignment target reassigns transactions, then deactivates")
         void deletesWithValidReassignmentTarget() {
             var userId = UUID.randomUUID();
             var existing = userCategory(userId, "commute");
@@ -404,13 +434,11 @@ class CategoryServiceTest {
                     .thenReturn(Optional.of(existing));
             when(categoryRepository.findByIdAndAccessibleToUser(target.categoryId(), userId))
                     .thenReturn(Optional.of(target));
-            when(transactionRepository.countByCategoryIdAndUserId(existing.categoryId(), userId))
-                    .thenReturn(12L);
 
             newService().deleteCustomCategory(existing.categoryId(), userId, target.categoryId());
 
             verify(transactionRepository).reassignCategory(existing.categoryId(), target.categoryId(), userId);
-            verify(categoryRepository).delete(existing.categoryId());
+            verify(categoryRepository).deactivate(existing.categoryId());
         }
 
         @Test
@@ -420,14 +448,12 @@ class CategoryServiceTest {
             var existing = userCategory(userId, "commute");
             when(categoryRepository.findByIdAndAccessibleToUser(existing.categoryId(), userId))
                     .thenReturn(Optional.of(existing));
-            when(transactionRepository.countByCategoryIdAndUserId(existing.categoryId(), userId))
-                    .thenReturn(3L);
 
             assertThatThrownBy(() -> newService()
                     .deleteCustomCategory(existing.categoryId(), userId, existing.categoryId()))
                     .isInstanceOf(IllegalArgumentException.class);
 
-            verify(categoryRepository, never()).delete(any());
+            verify(categoryRepository, never()).deactivate(any());
             verify(transactionRepository, never()).reassignCategory(any(), any(), any());
         }
 
@@ -441,14 +467,12 @@ class CategoryServiceTest {
                     .thenReturn(Optional.of(existing));
             when(categoryRepository.findByIdAndAccessibleToUser(otherUsersCategory, userId))
                     .thenReturn(Optional.empty());
-            when(transactionRepository.countByCategoryIdAndUserId(existing.categoryId(), userId))
-                    .thenReturn(3L);
 
             assertThatThrownBy(() -> newService()
                     .deleteCustomCategory(existing.categoryId(), userId, otherUsersCategory))
                     .isInstanceOf(CategoryNotFoundException.class);
 
-            verify(categoryRepository, never()).delete(any());
+            verify(categoryRepository, never()).deactivate(any());
         }
     }
 

@@ -122,7 +122,7 @@ class JooqCategoryRepositoryIT extends AbstractIntegrationTest {
 
     @Test
     @DisplayName("#6: ON DELETE RESTRICT — a category referenced by a transaction cannot be "
-            + "deleted directly at the database level, independent of the service-layer guard")
+            + "hard-deleted at the database level")
     void onDeleteRestrictPreventsDeletingAnInUseCategory() throws SQLException {
         var userId = UUID.randomUUID();
         var accountId = insertAccountAsSuperuser(userId);
@@ -130,20 +130,49 @@ class JooqCategoryRepositoryIT extends AbstractIntegrationTest {
         var created = categoryRepository.insert(UUID.randomUUID(), "commute", userId);
         insertTransactionReferencingCategoryAsSuperuser(accountId, created.categoryId());
 
-        assertThatThrownBy(() -> categoryRepository.delete(created.categoryId()))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        try (Connection conn = DriverManager.getConnection(
+                     POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement stmt = conn.createStatement()) {
+            assertThatThrownBy(() -> stmt.execute(
+                    "DELETE FROM ledger.categories WHERE category_id = '" + created.categoryId() + "'"))
+                    .isInstanceOf(SQLException.class);
+        }
     }
 
     @Test
-    @DisplayName("deleting a category with no referencing transactions succeeds")
-    void deleteSucceedsWhenUnused() {
+    @DisplayName("DP-LEDGER-CATEGORIES-02: a deactivated category leaves the list and name/cap checks, "
+            + "but stays findable by id")
+    void deactivateHidesCategoryButKeepsIt() {
         var userId = UUID.randomUUID();
         UserContextHolder.set(userId);
         var created = categoryRepository.insert(UUID.randomUUID(), "one_off", userId);
 
-        categoryRepository.delete(created.categoryId());
+        categoryRepository.deactivate(created.categoryId());
 
-        assertThat(categoryRepository.findByIdAndAccessibleToUser(created.categoryId(), userId)).isEmpty();
+        assertThat(categoryRepository.findAllAccessibleToUser(userId))
+                .extracting(Category::categoryId).doesNotContain(created.categoryId());
+        assertThat(categoryRepository.existsByNormalizedNameAccessibleToUser("one_off", userId)).isFalse();
+        assertThat(categoryRepository.countByUserId(userId)).isZero();
+        assertThat(categoryRepository.findByIdAndAccessibleToUser(created.categoryId(), userId))
+                .get().extracting(Category::isActive).isEqualTo(false);
+        assertThat(categoryRepository.findInactiveUserCategoryByName("one_off", userId))
+                .get().extracting(Category::categoryId).isEqualTo(created.categoryId());
+    }
+
+    @Test
+    @DisplayName("DP-LEDGER-CATEGORIES-02: reactivate brings a category back under the same id")
+    void reactivateRestoresTheCategory() {
+        var userId = UUID.randomUUID();
+        UserContextHolder.set(userId);
+        var created = categoryRepository.insert(UUID.randomUUID(), "one_off", userId);
+        categoryRepository.deactivate(created.categoryId());
+
+        var reactivated = categoryRepository.reactivate(created.categoryId());
+
+        assertThat(reactivated.categoryId()).isEqualTo(created.categoryId());
+        assertThat(reactivated.isActive()).isTrue();
+        assertThat(categoryRepository.findAllAccessibleToUser(userId))
+                .extracting(Category::categoryId).contains(created.categoryId());
     }
 
     // --- fixture helpers -------------------------------------------------------------------

@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -127,8 +128,9 @@ class CategoryControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("e. deleting a category in use without a reassignment target responds 409 with the count")
-    void deleteInUseWithoutReassignmentResponds409() throws Exception {
+    @DisplayName("e. DP-LEDGER-CATEGORIES-02: deleting a category in use without a reassignment target "
+            + "deactivates it: it leaves the list, and its transaction still references it")
+    void deleteInUseWithoutReassignmentDeactivates() throws Exception {
         var userId = UUID.randomUUID();
         var categoryId = createCustomCategory(userId, "Commute");
         // Test-support helper inserts a transaction referencing categoryId directly via jOOQ —
@@ -137,8 +139,27 @@ class CategoryControllerIT extends AbstractIntegrationTest {
 
         mockMvc.perform(delete(CATEGORIES + "/" + categoryId)
                         .header(IDENTITY_HEADER, userId.toString()))
-                .andExpect(status().isConflict())
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get(CATEGORIES).header(IDENTITY_HEADER, userId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.categoryId=='" + categoryId + "')]").isEmpty());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get(CATEGORIES + "/" + categoryId + "/usage").header(IDENTITY_HEADER, userId.toString()))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.transactionCount").value(1));
+    }
+
+    @Test
+    @DisplayName("DP-LEDGER-CATEGORIES-02: re-creating a deactivated category's name brings back the same category")
+    void recreatingADeactivatedNameReactivatesIt() throws Exception {
+        var userId = UUID.randomUUID();
+        var categoryId = createCustomCategory(userId, "Pet Care");
+        mockMvc.perform(delete(CATEGORIES + "/" + categoryId).header(IDENTITY_HEADER, userId.toString()))
+                .andExpect(status().isNoContent());
+
+        assertThat(createCustomCategory(userId, "Pet Care")).isEqualTo(categoryId);
     }
 
     @Test
