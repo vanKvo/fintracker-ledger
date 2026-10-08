@@ -162,11 +162,11 @@ class InternalApiSecurityIT extends AbstractIntegrationTest {
         var body = """
                 {"statementId": "%s", "transactions": [
                   {"date": "2026-08-15", "merchant": "Groceries", "amount": -25.00,
-                   "category": "Groceries", "type": "PURCHASE", "rowFingerprint": "%s"},
+                   "category": "Groceries", "type": "EXPENSE", "direction": "DEBIT", "rowFingerprint": "%s"},
                   {"date": "2026-08-16", "merchant": "  ", "amount": -9.99,
-                   "category": "Dining", "type": "PURCHASE", "rowFingerprint": "%s"},
+                   "category": "Dining", "type": "EXPENSE", "direction": "DEBIT", "rowFingerprint": "%s"},
                   {"date": "2026-08-17", "merchant": "Zero Co", "amount": 0.00,
-                   "category": "Misc", "type": "PURCHASE", "rowFingerprint": "%s"}
+                   "category": "Misc", "type": "EXPENSE", "direction": "DEBIT", "rowFingerprint": "%s"}
                 ]}
                 """.formatted(statementId, "1".repeat(64), "2".repeat(64), "3".repeat(64));
 
@@ -338,7 +338,7 @@ class InternalApiSecurityIT extends AbstractIntegrationTest {
             }
             lines.append("""
                     {"date": "2026-08-15", "merchant": "Merchant %d", "amount": -25.00,
-                     "category": "Groceries", "type": "PURCHASE", "rowFingerprint": "%s"}
+                     "category": "Groceries", "type": "EXPENSE", "direction": "DEBIT", "rowFingerprint": "%s"}
                     """.formatted(seed + i, fingerprint(seed + i)));
         }
         return "{\"statementId\": \"%s\", \"transactions\": [%s]}".formatted(statementId, lines);

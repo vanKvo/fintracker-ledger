@@ -18,10 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * within that period's date range."
  *
  * <p>"Approved" is the shape the ledger already treats as real, settled spending: status POSTED,
- * type PURCHASE, not excluded from budgeting, and not a transaction that has since been split into
+ * type EXPENSE, not excluded from budgeting, and not a transaction that has since been split into
  * children (whose parent would otherwise be counted alongside them). Each of those four filters
  * gets its own test, because dropping any one of them inflates a user's reported spending against
- * their own budget.
+ * their own budget. Refund offsets (TXT-02) are covered by BudgetRefundOffsetIT.
  */
 class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
 
@@ -41,8 +41,8 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void eachLineReportsItsOwnCategorySpending() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-120.00", month.plusDays(4));
-        insertPostedPurchase(accountId, "Dining", "-30.00", month.plusDays(5));
+        insertPostedExpense(accountId, "Groceries", "-120.00", month.plusDays(4));
+        insertPostedExpense(accountId, "Dining", "-30.00", month.plusDays(5));
 
         var budget = budgetService.upsertBudget(userId, month, null,
                 List.of(line("Groceries", "500.00"), line("Dining", "200.00")));
@@ -58,9 +58,9 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void pendingTransactionsAreNotCounted() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
         insertTransaction(accountId, "Groceries", "-999.00", month.plusDays(4),
-                "PURCHASE", "PENDING", false, null);
+                "EXPENSE", "PENDING", false, null);
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -74,25 +74,25 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void excludedTransactionsAreNotCounted() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
         insertTransaction(accountId, "Groceries", "-999.00", month.plusDays(4),
-                "PURCHASE", "POSTED", true, null);
+                "EXPENSE", "POSTED", true, null);
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
         assertThat(spentOn(budget, "Groceries")).isEqualByComparingTo("100.00");
     }
 
-    // REQ-5.1 Spend Amount Initialization — a CREDIT (refund) is not an expense. Counting it would
-    // make a refund consume budget rather than free it.
+    // REQ-5.1 Spend Amount Initialization / TXT-02 — INCOME is not an expense. Counting it would
+    // make income consume budget.
     @Test
-    @DisplayName("CREDIT transactions are not counted as spending")
-    void creditTransactionsAreNotCounted() {
+    @DisplayName("INCOME transactions are not counted as spending")
+    void incomeTransactionsAreNotCounted() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
         insertTransaction(accountId, "Groceries", "50.00", month.plusDays(4),
-                "CREDIT", "POSTED", false, null);
+                "INCOME", "POSTED", false, null);
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -106,9 +106,9 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void splitParentIsNotDoubleCounted() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        var parentId = insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
-        insertTransaction(accountId, "Groceries", "-60.00", month.plusDays(3), "PURCHASE", "POSTED", false, parentId);
-        insertTransaction(accountId, "Groceries", "-40.00", month.plusDays(3), "PURCHASE", "POSTED", false, parentId);
+        var parentId = insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertTransaction(accountId, "Groceries", "-60.00", month.plusDays(3), "EXPENSE", "POSTED", false, parentId);
+        insertTransaction(accountId, "Groceries", "-40.00", month.plusDays(3), "EXPENSE", "POSTED", false, parentId);
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -124,8 +124,8 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void spendingInAnUnbudgetedCategoryIsIgnored() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
-        insertPostedPurchase(accountId, "Travel", "-750.00", month.plusDays(6));
+        insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertPostedExpense(accountId, "Travel", "-750.00", month.plusDays(6));
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -150,7 +150,7 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void categoryMatchingIsCaseInsensitive() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "groceries", "-75.00", month.plusDays(3));
+        insertPostedExpense(accountId, "groceries", "-75.00", month.plusDays(3));
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -165,10 +165,10 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
     void periodRangeIsInclusiveOfBothMonthEnds() {
         var month = LocalDate.of(2026, 7, 1);
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-10.00", LocalDate.of(2026, 6, 30));
-        insertPostedPurchase(accountId, "Groceries", "-1.00", LocalDate.of(2026, 7, 1));
-        insertPostedPurchase(accountId, "Groceries", "-2.00", LocalDate.of(2026, 7, 31));
-        insertPostedPurchase(accountId, "Groceries", "-20.00", LocalDate.of(2026, 8, 1));
+        insertPostedExpense(accountId, "Groceries", "-10.00", LocalDate.of(2026, 6, 30));
+        insertPostedExpense(accountId, "Groceries", "-1.00", LocalDate.of(2026, 7, 1));
+        insertPostedExpense(accountId, "Groceries", "-2.00", LocalDate.of(2026, 7, 31));
+        insertPostedExpense(accountId, "Groceries", "-20.00", LocalDate.of(2026, 8, 1));
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
@@ -188,7 +188,7 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
         var budgetId = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")))
                 .budgetId();
 
-        insertPostedPurchase(accountId, "Groceries", "-42.00", month.plusDays(7));
+        insertPostedExpense(accountId, "Groceries", "-42.00", month.plusDays(7));
         var reread = budgetService.getBudgetForMonth(userId, month);
 
         assertThat(reread.budgetId()).isEqualTo(budgetId);
@@ -203,10 +203,10 @@ class BudgetSpendEnrichmentIT extends AbstractBudgetIT {
         var month = currentMonth();
         var otherUser = UUID.randomUUID();
         var otherAccount = insertAccount(otherUser);
-        insertPostedPurchase(otherAccount, "Groceries", "-900.00", month.plusDays(3));
+        insertPostedExpense(otherAccount, "Groceries", "-900.00", month.plusDays(3));
 
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-100.00", month.plusDays(3));
+        insertPostedExpense(accountId, "Groceries", "-100.00", month.plusDays(3));
 
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 

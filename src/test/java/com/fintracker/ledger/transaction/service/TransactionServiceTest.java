@@ -92,24 +92,27 @@ class TransactionServiceTest {
         return new Transaction(id, UUID.randomUUID(), statementId, null, null,
                 new BigDecimal("-100.00"), "Merchant", "Groceries", "Description", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.STATEMENT_UPLOAD,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null, null);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.PENDING,
+                false, false, null, null,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     private Transaction transactionWithTags(UUID id, List<String> tags) {
         return new Transaction(id, UUID.randomUUID(), null, null, null,
                 new BigDecimal("-100.00"), "Merchant", "Groceries", "Description", tags,
                 LocalDate.now(), Transaction.TransactionSource.STATEMENT_UPLOAD,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null, null);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.PENDING,
+                false, false, null, null,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     private Transaction postedTransaction(UUID id) {
         return new Transaction(id, UUID.randomUUID(), null, null, null,
                 new BigDecimal("-50.00"), "Shop", "Dining", "Description", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.MANUAL_ENTRY,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.POSTED,
-                false, true, null, null);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.POSTED,
+                false, true, null, null,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     // REQ-2.2 "Status Promotion" (single-transaction path): status column transitions from
@@ -594,7 +597,7 @@ class TransactionServiceTest {
         void shouldSaveWithManualEntrySourceIsManualTrueAndPostedStatus() {
             var accountId = UUID.randomUUID();
             var request = new ManualTransactionRequest(accountId, new BigDecimal("-42.50"),
-                    "Corner Store", "Groceries", List.of(), LocalDate.of(2026, 6, 1), "PURCHASE");
+                    "Corner Store", "Groceries", List.of(), LocalDate.of(2026, 6, 1), "EXPENSE", "DEBIT", null);
             when(accountRepository.existsByIdAndUserId(accountId, userId)).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -617,7 +620,7 @@ class TransactionServiceTest {
         @DisplayName("REQ-2.3.1.D: should default txDate to today when the request omits it")
         void shouldDefaultTxDateToTodayWhenNotProvided() {
             var request = new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), null, "PURCHASE");
+                    "Corner Store", "Groceries", List.of(), null, "EXPENSE", "DEBIT", null);
             when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -631,7 +634,7 @@ class TransactionServiceTest {
         void shouldPreserveExplicitTxDate() {
             var explicitDate = LocalDate.of(2026, 3, 15);
             var request = new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), explicitDate, "PURCHASE");
+                    "Corner Store", "Groceries", List.of(), explicitDate, "EXPENSE", "DEBIT", null);
             when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -651,7 +654,7 @@ class TransactionServiceTest {
         void shouldRejectWhenAccountDoesNotBelongToUser() {
             var foreignAccountId = UUID.randomUUID();
             var request = new ManualTransactionRequest(foreignAccountId, new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), LocalDate.now(), "PURCHASE");
+                    "Corner Store", "Groceries", List.of(), LocalDate.now(), "EXPENSE", "DEBIT", null);
 
             assertThatThrownBy(() -> transactionService.createManualTransaction(request, userId))
                     .isInstanceOf(IllegalArgumentException.class);
@@ -677,7 +680,7 @@ class TransactionServiceTest {
         private BulkCreateTransactionsRequest.TransactionLine validLine(String fingerprint) {
             return new BulkCreateTransactionsRequest.TransactionLine(
                     LocalDate.of(2026, 8, 15), "Corner Store", new BigDecimal("-42.50"),
-                    "Groceries", null, "PURCHASE", fingerprint);
+                    "Groceries", null, "EXPENSE", fingerprint, "DEBIT", null);
         }
 
         @Test
@@ -725,10 +728,10 @@ class TransactionServiceTest {
             var goodLine = validLine("a".repeat(64));
             var zeroAmountLine = new BulkCreateTransactionsRequest.TransactionLine(
                     LocalDate.of(2026, 8, 16), "Bad Row", BigDecimal.ZERO,
-                    "Groceries", null, "PURCHASE", "b".repeat(64));
+                    "Groceries", null, "EXPENSE", "b".repeat(64), "DEBIT", null);
             var blankMerchantLine = new BulkCreateTransactionsRequest.TransactionLine(
                     LocalDate.of(2026, 8, 17), " ", new BigDecimal("-10.00"),
-                    "Groceries", null, "PURCHASE", "c".repeat(64));
+                    "Groceries", null, "EXPENSE", "c".repeat(64), "DEBIT", null);
 
             var result = transactionService.bulkCreateFromStatement(
                     statementId, userId, List.of(goodLine, zeroAmountLine, blankMerchantLine));
@@ -788,7 +791,7 @@ class TransactionServiceTest {
     }
 
     // ADDED. REQ-STMT-02's Error Handling section names three row-level validation failures —
-    // "non-positive amount, blank merchant, type outside PURCHASE/CREDIT" — and the class above
+    // "non-positive amount, blank merchant, type outside PURCHASE/CREDIT" (now TXT-01's five types) — and the class above
     // covers only the first two. It also never pins down what the FailedRow.index actually refers
     // to, which is the difference between a caller being able to point at the offending line of
     // their statement and being handed a number that means nothing.
@@ -806,12 +809,12 @@ class TransactionServiceTest {
         private BulkCreateTransactionsRequest.TransactionLine line(
                 String merchant, BigDecimal amount, String type, String fingerprint) {
             return new BulkCreateTransactionsRequest.TransactionLine(
-                    LocalDate.of(2026, 8, 15), merchant, amount, "Groceries", null, type, fingerprint);
+                    LocalDate.of(2026, 8, 15), merchant, amount, "Groceries", null, type, fingerprint,
+                    "DEBIT", null);
         }
 
         @Test
-        @DisplayName("a type outside PURCHASE/CREDIT is reported as a failedRow, not inserted and "
-                + "not thrown")
+        @DisplayName("a legacy type (PURCHASE) is reported as a failedRow, not inserted and not thrown")
         void shouldRejectRowWithUnsupportedType() {
             var statementId = UUID.randomUUID();
             var accountId = UUID.randomUUID();
@@ -821,8 +824,8 @@ class TransactionServiceTest {
                     .thenAnswer(i -> ((List<?>) i.getArgument(1)).size());
 
             var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                    line("Corner Store", new BigDecimal("-42.50"), "TRANSFER", "a".repeat(64)),
-                    line("Corner Store", new BigDecimal("-10.00"), "PURCHASE", "b".repeat(64))));
+                    line("Corner Store", new BigDecimal("-42.50"), "PURCHASE", "a".repeat(64)),
+                    line("Corner Store", new BigDecimal("-10.00"), "EXPENSE", "b".repeat(64))));
 
             assertThat(result.failedRows()).hasSize(1);
             assertThat(result.failedRows()).extracting("index").containsExactly(0);
@@ -848,9 +851,9 @@ class TransactionServiceTest {
                     .thenAnswer(i -> ((List<?>) i.getArgument(1)).size());
 
             var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                    line("  ", new BigDecimal("-1.00"), "PURCHASE", "a".repeat(64)),
-                    line("Corner Store", new BigDecimal("-2.00"), "PURCHASE", "b".repeat(64)),
-                    line("Corner Store", BigDecimal.ZERO, "PURCHASE", "c".repeat(64))));
+                    line("  ", new BigDecimal("-1.00"), "EXPENSE", "a".repeat(64)),
+                    line("Corner Store", new BigDecimal("-2.00"), "EXPENSE", "b".repeat(64)),
+                    line("Corner Store", BigDecimal.ZERO, "EXPENSE", "c".repeat(64))));
 
             assertThat(result.insertedCount()).isEqualTo(1);
             assertThat(result.failedRows()).extracting("index").containsExactlyInAnyOrder(0, 2);
@@ -869,8 +872,8 @@ class TransactionServiceTest {
                     .thenReturn(Optional.of(statement(statementId, accountId)));
 
             var result = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                    line("", new BigDecimal("-1.00"), "PURCHASE", "a".repeat(64)),
-                    line("Corner Store", BigDecimal.ZERO, "PURCHASE", "b".repeat(64))));
+                    line("", new BigDecimal("-1.00"), "EXPENSE", "a".repeat(64)),
+                    line("Corner Store", BigDecimal.ZERO, "EXPENSE", "b".repeat(64))));
 
             assertThat(result.insertedCount()).isZero();
             assertThat(result.skippedDuplicateCount()).isZero();

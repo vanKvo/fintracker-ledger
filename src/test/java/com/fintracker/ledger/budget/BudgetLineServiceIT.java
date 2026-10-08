@@ -30,7 +30,7 @@ class BudgetLineServiceIT extends AbstractBudgetIT {
     void addLineItemPersistsAndComputesSpend() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Dining", "-25.00", month.plusDays(2));
+        insertPostedExpense(accountId, "Dining", "-25.00", month.plusDays(2));
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
         BudgetLine added = budgetLineService.addLineItem(
@@ -135,7 +135,7 @@ class BudgetLineServiceIT extends AbstractBudgetIT {
     void updateLineItemLimitPersistsAndRecomputesSpend() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-80.00", month.plusDays(1));
+        insertPostedExpense(accountId, "Groceries", "-80.00", month.plusDays(1));
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
         var lineId = budget.lines().get(0).lineId();
 
@@ -176,7 +176,7 @@ class BudgetLineServiceIT extends AbstractBudgetIT {
     void removingLineItemDeletesLineOnly() {
         var month = currentMonth();
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-80.00", month.plusDays(1));
+        insertPostedExpense(accountId, "Groceries", "-80.00", month.plusDays(1));
         var budget = budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
         var lineId = budget.lines().get(0).lineId();
 

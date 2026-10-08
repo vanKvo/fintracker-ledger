@@ -72,7 +72,7 @@ class BulkCreateAmountValidationTest {
             String merchant, String amount, String type, String fingerprint) {
         return new BulkCreateTransactionsRequest.TransactionLine(
                 LocalDate.of(2026, 8, 15), merchant, new BigDecimal(amount), "Groceries",
-                null, type, fingerprint);
+                null, type, fingerprint, "INCOME".equals(type) ? "CREDIT" : "DEBIT", null);
     }
 
     private UUID stubOwnedStatement(int insertedCount) {
@@ -85,13 +85,13 @@ class BulkCreateAmountValidationTest {
     }
 
     @Test
-    @DisplayName("accepts both signs: a negative PURCHASE and a positive CREDIT are both valid")
+    @DisplayName("accepts both signs: a negative EXPENSE and a positive INCOME are both valid")
     void shouldAcceptAmountsOfAnySign() {
         var statementId = stubOwnedStatement(2);
 
         var response = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                line("Purchase", "-25.00", "PURCHASE", "a".repeat(64)),
-                line("Credit", "25.00", "CREDIT", "b".repeat(64))));
+                line("Purchase", "-25.00", "EXPENSE", "a".repeat(64)),
+                line("Credit", "25.00", "INCOME", "b".repeat(64))));
 
         assertThat(response.failedRows()).isEmpty();
         assertThat(response.insertedCount()).isEqualTo(2);
@@ -103,8 +103,8 @@ class BulkCreateAmountValidationTest {
         var statementId = stubOwnedStatement(1);
 
         var response = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                line("Purchase", "-25.00", "PURCHASE", "a".repeat(64)),
-                line("Zero", "0.00", "PURCHASE", "b".repeat(64))));
+                line("Purchase", "-25.00", "EXPENSE", "a".repeat(64)),
+                line("Zero", "0.00", "EXPENSE", "b".repeat(64))));
 
         assertThat(response.insertedCount()).isEqualTo(1);
         assertThat(response.failedRows()).hasSize(1);
@@ -119,9 +119,9 @@ class BulkCreateAmountValidationTest {
         var statementId = stubOwnedStatement(2);
 
         var response = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                line("Max", "9999999999999.99", "PURCHASE", "a".repeat(64)),        // ceiling — accepted
-                line("Overflow", "10000000000000.00", "PURCHASE", "b".repeat(64)),  // 14 digits — rejected
-                line("NegOverflow", "-10000000000000.00", "CREDIT", "c".repeat(64))));
+                line("Max", "9999999999999.99", "EXPENSE", "a".repeat(64)),        // ceiling — accepted
+                line("Overflow", "10000000000000.00", "EXPENSE", "b".repeat(64)),  // 14 digits — rejected
+                line("NegOverflow", "-10000000000000.00", "INCOME", "c".repeat(64))));
 
         assertThat(response.insertedCount()).isEqualTo(2);
         assertThat(response.failedRows()).hasSize(2);
@@ -137,9 +137,9 @@ class BulkCreateAmountValidationTest {
         var statementId = stubOwnedStatement(2);
 
         var response = transactionService.bulkCreateFromStatement(statementId, userId, List.of(
-                line("TrailingZeros", "25.500", "PURCHASE", "a".repeat(64)),  // = 25.5 — accepted
-                line("Integer", "600", "CREDIT", "b".repeat(64)),             // scale 0 — accepted
-                line("SubCent", "25.555", "PURCHASE", "c".repeat(64))));      // rejected
+                line("TrailingZeros", "25.500", "EXPENSE", "a".repeat(64)),  // = 25.5 — accepted
+                line("Integer", "600", "INCOME", "b".repeat(64)),             // scale 0 — accepted
+                line("SubCent", "25.555", "EXPENSE", "c".repeat(64))));      // rejected
 
         assertThat(response.insertedCount()).isEqualTo(2);
         assertThat(response.failedRows()).hasSize(1);

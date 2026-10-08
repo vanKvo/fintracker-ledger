@@ -151,8 +151,9 @@ class BulkTransactionInsertIT extends AbstractIntegrationTest {
         return new Transaction(null, accountId, statementId, null, null,
                 amount, "Merchant", "Groceries", null, List.of(),
                 LocalDate.of(2026, 8, 15), Transaction.TransactionSource.STATEMENT_UPLOAD,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null, fingerprint);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.PENDING,
+                false, false, null, fingerprint,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     private int countTransactionsForStatement() throws SQLException {

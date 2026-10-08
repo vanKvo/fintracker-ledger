@@ -133,7 +133,7 @@ class BudgetDeletionIT extends AbstractBudgetIT {
     @DisplayName("deleting a budget leaves the user's transactions untouched")
     void deletingABudgetDoesNotTouchTransactions() {
         var accountId = insertAccount(userId);
-        var transactionId = insertPostedPurchase(accountId, "Groceries", "75.00", currentMonth().plusDays(3));
+        var transactionId = insertPostedExpense(accountId, "Groceries", "75.00", currentMonth().plusDays(3));
         var budget = budgetService.upsertBudget(userId, currentMonth(), null, List.of(line("Groceries", "500.00")));
 
         budgetService.deleteBudget(userId, budget.budgetId());

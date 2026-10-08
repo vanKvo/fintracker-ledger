@@ -161,9 +161,9 @@ class StatementOverwriteIT extends AbstractIntegrationTest {
              PreparedStatement ps = conn.prepareStatement("""
                      INSERT INTO ledger.transactions
                          (transaction_id, account_id, user_id, statement_id, amount, merchant,
-                          category, tx_date, source, type, status)
+                          category, tx_date, source, type, direction, status)
                      VALUES (?, ?, ?, ?, -25.00, ?, 'Groceries', '2026-08-15',
-                             'STATEMENT_UPLOAD', 'PURCHASE', 'PENDING')
+                             'STATEMENT_UPLOAD', 'EXPENSE', 'DEBIT', 'PENDING')
                      """)) {
             ps.setObject(1, UUID.randomUUID());
             ps.setObject(2, accountId);

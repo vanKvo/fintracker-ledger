@@ -78,8 +78,9 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
                 null, accountId, null, null, null,
                 BigDecimal.ZERO, "Test Merchant", "Groceries", "desc", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.MANUAL_ENTRY,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null, null);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.PENDING,
+                false, false, null, null,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
 
         // The real TransactionRepository bean is wrapped by Spring's persistence exception
         // translation AOP advice, which converts jOOQ's own DataAccessException into Spring's
@@ -348,8 +349,9 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
                 null, accountId, statementId, null, null,
                 amount, "Test Merchant", "Groceries", null, List.of(),
                 LocalDate.now(), Transaction.TransactionSource.STATEMENT_UPLOAD,
-                Transaction.TransactionType.PURCHASE, Transaction.TransactionStatus.PENDING,
-                false, false, null, fingerprint);
+                Transaction.TransactionType.EXPENSE, Transaction.TransactionStatus.PENDING,
+                false, false, null, fingerprint,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     private UUID insertStatementAsSuperuser(UUID accountId) throws SQLException {
@@ -376,8 +378,9 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
                 null, accountId, null, parentId, null,
                 amount, "Test Merchant", category, "desc", List.of(),
                 LocalDate.now(), Transaction.TransactionSource.MANUAL_ENTRY,
-                Transaction.TransactionType.PURCHASE, status,
-                false, false, null, null);
+                Transaction.TransactionType.EXPENSE, status,
+                false, false, null, null,
+                Transaction.TransactionDirection.DEBIT, "USD", null, null);
     }
 
     private UUID insertPostedTransactionAsSuperuser(UUID accountId, BigDecimal amount) throws SQLException {
@@ -386,8 +389,8 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
                      POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
              PreparedStatement ps = conn.prepareStatement("""
                      INSERT INTO ledger.transactions
-                         (transaction_id, account_id, amount, merchant, category, tx_date, source, type, status)
-                     VALUES (?, ?, ?, 'Test Merchant', 'Groceries', CURRENT_DATE, 'MANUAL_ENTRY', 'PURCHASE', 'POSTED')
+                         (transaction_id, account_id, amount, merchant, category, tx_date, source, type, direction, status)
+                     VALUES (?, ?, ?, 'Test Merchant', 'Groceries', CURRENT_DATE, 'MANUAL_ENTRY', 'EXPENSE', 'DEBIT', 'POSTED')
                      """)) {
             ps.setObject(1, transactionId);
             ps.setObject(2, accountId);
@@ -436,8 +439,8 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
                      POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
              PreparedStatement ps = conn.prepareStatement("""
                      INSERT INTO ledger.transactions
-                         (transaction_id, account_id, amount, merchant, category, tx_date, source, type, status)
-                     VALUES (?, ?, ?, 'Test Merchant', 'Groceries', CURRENT_DATE, 'MANUAL_ENTRY', 'PURCHASE', 'PENDING')
+                         (transaction_id, account_id, amount, merchant, category, tx_date, source, type, direction, status)
+                     VALUES (?, ?, ?, 'Test Merchant', 'Groceries', CURRENT_DATE, 'MANUAL_ENTRY', 'EXPENSE', 'DEBIT', 'PENDING')
                      """)) {
             ps.setObject(1, transactionId);
             ps.setObject(2, accountId);

@@ -68,7 +68,7 @@ class InternalTransactionControllerTest {
         return """
                 {"statementId":"%s","userId":"%s","accountId":"%s","transactions":[
                   {"date":"2026-08-15","merchant":"Corner Store","amount":-42.50,
-                   "category":"Groceries","subCategory":null,"type":"PURCHASE",
+                   "category":"Groceries","subCategory":null,"type":"EXPENSE","direction":"DEBIT",
                    "rowFingerprint":"%s"}]}
                 """.formatted(statementId, forgedUserId, forgedAccountId, "a".repeat(64));
     }

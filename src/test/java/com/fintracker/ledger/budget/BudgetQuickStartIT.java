@@ -244,7 +244,7 @@ class BudgetQuickStartIT extends AbstractBudgetTemplateIT {
     @DisplayName("inherited lines are enriched with spend for a current period")
     void inheritedLinesCarrySpendForCurrentPeriod() {
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "125.00", currentMonth().plusDays(4));
+        insertPostedExpense(accountId, "Groceries", "125.00", currentMonth().plusDays(4));
         var templateId = basicLivingTemplate();
 
         var budget = budgetTemplateService.instantiateQuickStartBudget(

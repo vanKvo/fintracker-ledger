@@ -107,21 +107,23 @@ public abstract class AbstractBudgetIT extends AbstractIntegrationTest {
         return accountId;
     }
 
-    /** A POSTED PURCHASE — the only shape REQ-5.1 counts as an "approved" expense. */
-    protected UUID insertPostedPurchase(UUID accountId, String category, String amount, LocalDate date) {
-        return insertTransaction(accountId, category, amount, date, "PURCHASE", "POSTED", false, null);
+    /** A POSTED EXPENSE — the shape REQ-5.1 counts as an "approved" expense. */
+    protected UUID insertPostedExpense(UUID accountId, String category, String amount, LocalDate date) {
+        return insertTransaction(accountId, category, amount, date, "EXPENSE", "POSTED", false, null);
     }
 
     protected UUID insertTransaction(UUID accountId, String category, String amount, LocalDate date,
                                      String type, String status, boolean excluded, UUID parentId) {
         var transactionId = UUID.randomUUID();
+        // TXT-01: money in for INCOME/REFUND, out for everything else — enough for fixtures.
+        var direction = type.equals("INCOME") || type.equals("REFUND") ? "CREDIT" : "DEBIT";
         executeAsSuperuser("""
                 INSERT INTO ledger.transactions
                     (transaction_id, account_id, parent_transaction_id, amount, merchant, category,
-                     tx_date, source, type, status, is_excluded)
-                VALUES (?, ?, ?, ?, 'Test Merchant', ?, ?, 'MANUAL_ENTRY', ?, ?, ?)
+                     tx_date, source, type, direction, status, is_excluded)
+                VALUES (?, ?, ?, ?, 'Test Merchant', ?, ?, 'MANUAL_ENTRY', ?, ?, ?, ?)
                 """, transactionId, accountId, parentId, new BigDecimal(amount), category, date,
-                type, status, excluded);
+                type, direction, status, excluded);
         return transactionId;
     }
 

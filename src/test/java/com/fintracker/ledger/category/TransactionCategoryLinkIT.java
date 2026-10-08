@@ -127,8 +127,8 @@ class TransactionCategoryLinkIT extends AbstractIntegrationTest {
              Statement stmt = conn.createStatement()) {
             stmt.execute("""
                     INSERT INTO ledger.transactions
-                        (transaction_id, account_id, category_id, category, amount, merchant, tx_date, source, type, status)
-                    VALUES ('%s', '%s', '%s', 'other', -10.00, 'Test Merchant', CURRENT_DATE, 'MANUAL_ENTRY', 'PURCHASE', 'POSTED')
+                        (transaction_id, account_id, category_id, category, amount, merchant, tx_date, source, type, direction, status)
+                    VALUES ('%s', '%s', '%s', 'other', -10.00, 'Test Merchant', CURRENT_DATE, 'MANUAL_ENTRY', 'EXPENSE', 'DEBIT', 'POSTED')
                     """.formatted(transactionId, accountId, categoryId));
         }
         return transactionId;

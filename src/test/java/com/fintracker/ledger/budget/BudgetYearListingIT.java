@@ -152,7 +152,7 @@ class BudgetYearListingIT extends AbstractBudgetIT {
     void listedBudgetsAreEnrichedWithSpending() {
         var month = currentMonth().minusMonths(1);
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "75.00", month.plusDays(10));
+        insertPostedExpense(accountId, "Groceries", "75.00", month.plusDays(10));
         budgetService.upsertBudget(userId, month, null, List.of(line("Groceries", "500.00")));
 
         var budgets = budgetService.getBudgetsForYear(userId, month.getYear());

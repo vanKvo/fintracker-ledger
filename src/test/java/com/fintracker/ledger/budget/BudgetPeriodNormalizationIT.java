@@ -82,7 +82,7 @@ class BudgetPeriodNormalizationIT extends AbstractBudgetIT {
         clock.setTo(Instant.parse("2026-07-31T23:59:59Z"));
         var august = LocalDate.of(2026, 8, 1);
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-120.00", LocalDate.of(2026, 8, 10));
+        insertPostedExpense(accountId, "Groceries", "-120.00", LocalDate.of(2026, 8, 10));
         budgetService.upsertBudget(userId, august, null, List.of(line("Groceries", "500.00")));
 
         var budget = budgetService.getBudgetForMonth(userId, august);
@@ -100,7 +100,7 @@ class BudgetPeriodNormalizationIT extends AbstractBudgetIT {
         clock.setTo(Instant.parse("2026-08-01T00:00:00Z"));
         var august = LocalDate.of(2026, 8, 1);
         var accountId = insertAccount(userId);
-        insertPostedPurchase(accountId, "Groceries", "-120.00", LocalDate.of(2026, 8, 10));
+        insertPostedExpense(accountId, "Groceries", "-120.00", LocalDate.of(2026, 8, 10));
         budgetService.upsertBudget(userId, august, null, List.of(line("Groceries", "500.00")));
 
         var budget = budgetService.getBudgetForMonth(userId, august);
