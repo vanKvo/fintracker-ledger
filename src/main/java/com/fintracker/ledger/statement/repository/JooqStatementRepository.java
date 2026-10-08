@@ -149,9 +149,14 @@ public class JooqStatementRepository implements StatementRepository {
         // (app.internal_owner_lookup) just for this one SELECT; set/reset it on this exact
         // connection around the query, the same pattern RlsExecuteListener uses for
         // app.current_user_id, rather than depending on the generic per-request identity.
+        //
+        // app.current_user_id is also pinned to the nil UUID: a pooled connection that already
+        // served a user request has it RESET to '' (not unset), and statements_isolation's ''::uuid
+        // cast would fail the whole query. The nil UUID matches no real user_id.
         return dsl.connectionResult(conn -> {
             try (var set = conn.prepareStatement(
-                    "SELECT set_config('app.internal_owner_lookup', 'true', false)")) {
+                    "SELECT set_config('app.internal_owner_lookup', 'true', false), "
+                            + "set_config('app.current_user_id', '00000000-0000-0000-0000-000000000000', false)")) {
                 set.execute();
             }
             try {
@@ -165,7 +170,7 @@ public class JooqStatementRepository implements StatementRepository {
             } finally {
                 // Reset so a pooled connection never leaves this flag on for a later,
                 // unrelated query — same reasoning as RlsExecuteListener.end().
-                try (var reset = conn.prepareStatement("RESET app.internal_owner_lookup")) {
+                try (var reset = conn.prepareStatement("RESET app.internal_owner_lookup; RESET app.current_user_id")) {
                     reset.execute();
                 } catch (java.sql.SQLException ignored) {
                 }
