@@ -44,6 +44,9 @@ public class TransactionServiceImpl implements TransactionService {
 
     private static final java.util.regex.Pattern CURRENCY_CODE = java.util.regex.Pattern.compile("[A-Z]{3}");
 
+    private static final String TYPE_DIRECTION_RULE =
+            "EXPENSE must be a DEBIT; INCOME and REFUND must be a CREDIT";
+
     private final TransactionRepository transactionRepository;
     private final StatementRepository statementRepository;
     private final StatementService statementService;
@@ -165,6 +168,10 @@ public class TransactionServiceImpl implements TransactionService {
             return "direction must be one of %s.".formatted(
                     Arrays.toString(Transaction.TransactionDirection.values()));
         }
+        if (line.type() != null && !Transaction.TransactionType.valueOf(line.type())
+                .allows(Transaction.TransactionDirection.valueOf(line.direction()))) {
+            return TYPE_DIRECTION_RULE;
+        }
         if (line.currency() != null && !CURRENCY_CODE.matcher(line.currency()).matches()) {
             return "currency must be a 3-letter ISO 4217 code";
         }
@@ -204,9 +211,15 @@ public class TransactionServiceImpl implements TransactionService {
                     request.accountId(), direction);
         }
         var type = resolveType(request.type(), direction);
+        if (!type.allows(direction)) {
+            throw new IllegalArgumentException(TYPE_DIRECTION_RULE);
+        }
 
         if (request.currency() != null && !CURRENCY_CODE.matcher(request.currency()).matches()) {
             throw new IllegalArgumentException("currency must be a 3-letter ISO 4217 code");
+        }
+        if (request.linkedTransactionId() != null) {
+            requireOwnLinkTarget(request.linkedTransactionId(), userId);
         }
 
         // REQ-2.3.1.D: date defaults to today when the request omits it.
@@ -221,7 +234,8 @@ public class TransactionServiceImpl implements TransactionService {
                 Transaction.TransactionSource.MANUAL_ENTRY, type,
                 Transaction.TransactionStatus.POSTED,
                 false, true, null, null,
-                direction, currencyOrDefault(request.currency()), null, null);
+                direction, currencyOrDefault(request.currency()),
+                request.isRecurring(), request.linkedTransactionId());
 
         var saved = transactionRepository.save(transaction);
         log.info("Created manual transaction transactionId={} userId={}", saved.transactionId(), userId);
@@ -308,6 +322,45 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         transactionRepository.updateAmount(transactionId, amount);
+    }
+
+    @Override
+    public void updateTypeAndDirection(UUID transactionId, String type, String direction, UUID userId) {
+        var transaction = transactionRepository.findByIdAndUserId(transactionId, userId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+
+        var newType = type != null ? Transaction.TransactionType.valueOf(type) : transaction.type();
+        var newDirection = direction != null
+                ? Transaction.TransactionDirection.valueOf(direction) : transaction.direction();
+        if (!newType.allows(newDirection)) {
+            throw new IllegalArgumentException(TYPE_DIRECTION_RULE);
+        }
+        transactionRepository.updateTypeAndDirection(transactionId, newType, newDirection);
+    }
+
+    @Override
+    public void updateRecurring(UUID transactionId, boolean isRecurring, UUID userId) {
+        transactionRepository.findByIdAndUserId(transactionId, userId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+        transactionRepository.updateIsRecurring(transactionId, isRecurring);
+    }
+
+    @Override
+    public void linkTransaction(UUID transactionId, UUID linkedTransactionId, UUID userId) {
+        transactionRepository.findByIdAndUserId(transactionId, userId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+        if (transactionId.equals(linkedTransactionId)) {
+            throw new IllegalArgumentException("A transaction cannot be linked to itself.");
+        }
+        requireOwnLinkTarget(linkedTransactionId, userId);
+        transactionRepository.updateLinkedTransactionId(transactionId, linkedTransactionId);
+    }
+
+    /** The link target must be the caller's own — never trust an ID from the request body. */
+    private void requireOwnLinkTarget(UUID linkedTransactionId, UUID userId) {
+        if (transactionRepository.findByIdAndUserId(linkedTransactionId, userId).isEmpty()) {
+            throw new IllegalArgumentException("linkedTransactionId must be one of your transactions.");
+        }
     }
 
     @Override

@@ -51,11 +51,13 @@ public class TransactionController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) List<String> tags,
             @RequestParam(required = false) Transaction.TransactionStatus status,
+            @RequestParam(required = false) Transaction.TransactionType type,
+            @RequestParam(required = false) Transaction.TransactionDirection direction,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size
     ) {
         var filter = new TransactionFilter(userId, accountId, merchant, dateFrom, dateTo,
-                category, tags, status, page, size);
+                category, tags, status, type, direction, page, size);
         return ResponseEntity.ok(transactionService.getTransactions(filter));
     }
 
@@ -82,14 +84,23 @@ public class TransactionController {
     public ResponseEntity<Void> updateTransaction(@PathVariable UUID id,
                                                   @Valid @RequestBody UpdateTransactionRequest request,
                                                   @RequestAttribute("userId") UUID userId) {
-        if (request.category() == null && request.amount() == null) {
-            throw new IllegalArgumentException("At least one of category or amount must be provided.");
+        if (request.isEmpty()) {
+            throw new IllegalArgumentException("At least one field to update must be provided.");
         }
         if (request.category() != null) {
             transactionService.updateCategory(id, request.category(), userId);
         }
         if (request.amount() != null) {
             transactionService.updateAmount(id, request.amount(), userId);
+        }
+        if (request.type() != null || request.direction() != null) {
+            transactionService.updateTypeAndDirection(id, request.type(), request.direction(), userId);
+        }
+        if (request.isRecurring() != null) {
+            transactionService.updateRecurring(id, request.isRecurring(), userId);
+        }
+        if (request.linkedTransactionId() != null) {
+            transactionService.linkTransaction(id, request.linkedTransactionId(), userId);
         }
         return ResponseEntity.noContent().build();
     }

@@ -30,5 +30,7 @@ public record ManualTransactionRequest(
         // TXT-01: EXPENSE, INCOME, REFUND, TRANSFER or ADJUSTMENT; missing defaults from direction.
         String type,
         @NotNull String direction,  // DEBIT or CREDIT
-        String currency             // ISO 4217; defaults to USD
+        String currency,            // ISO 4217; defaults to USD
+        Boolean isRecurring,
+        UUID linkedTransactionId    // must be one of the user's own transactions
 ) {}

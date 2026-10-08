@@ -54,6 +54,19 @@ public interface TransactionService {
     void updateAmount(UUID transactionId, BigDecimal amount, UUID userId);
 
     /**
+     * TXT-01. Either value may be null to keep the stored one; the resulting pair must satisfy
+     * {@link Transaction.TransactionType#allows}.
+     */
+    void updateTypeAndDirection(UUID transactionId, String type, String direction, UUID userId);
+
+    void updateRecurring(UUID transactionId, boolean isRecurring, UUID userId);
+
+    /**
+     * TXT-01: links a transaction (e.g. a refund) to another of the same user's transactions.
+     */
+    void linkTransaction(UUID transactionId, UUID linkedTransactionId, UUID userId);
+
+    /**
      * REQ-2.2 "Tag Array Appending".
      */
     void appendTags(UUID transactionId, List<String> newTags, UUID userId);

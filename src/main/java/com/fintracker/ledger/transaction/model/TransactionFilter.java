@@ -13,6 +13,8 @@ public record TransactionFilter(
         String category,
         List<String> tags,
         Transaction.TransactionStatus status,
+        Transaction.TransactionType type,
+        Transaction.TransactionDirection direction,
         int page,
         int size
 ) {}

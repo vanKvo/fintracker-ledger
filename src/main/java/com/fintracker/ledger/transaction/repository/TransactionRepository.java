@@ -26,6 +26,13 @@ public interface TransactionRepository {
 
     void updateAmount(UUID transactionId, BigDecimal amount);
 
+    void updateTypeAndDirection(UUID transactionId, Transaction.TransactionType type,
+                                Transaction.TransactionDirection direction);
+
+    void updateIsRecurring(UUID transactionId, boolean isRecurring);
+
+    void updateLinkedTransactionId(UUID transactionId, UUID linkedTransactionId);
+
     void appendTags(UUID transactionId, List<String> newTags);
 
     void toggleExcluded(UUID transactionId, boolean isExcluded);

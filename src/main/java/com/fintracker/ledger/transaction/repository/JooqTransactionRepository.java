@@ -59,6 +59,10 @@ public class JooqTransactionRepository implements TransactionRepository {
                         ? field(name(SCHEMA, TX_TABLE, "category")).eq(filter.category()) : noCondition())
                 .and(filter.status() != null
                         ? field(name(SCHEMA, TX_TABLE, "status")).eq(filter.status().name()) : noCondition())
+                .and(filter.type() != null
+                        ? field(name(SCHEMA, TX_TABLE, "type")).eq(filter.type().name()) : noCondition())
+                .and(filter.direction() != null
+                        ? field(name(SCHEMA, TX_TABLE, "direction")).eq(filter.direction().name()) : noCondition())
                 .and(filter.tags() != null && !filter.tags().isEmpty()
                         ? condition("{0} && {1}::text[]",
                                 field(name(SCHEMA, TX_TABLE, "tags")),
@@ -148,6 +152,32 @@ public class JooqTransactionRepository implements TransactionRepository {
     public void updateAmount(UUID transactionId, BigDecimal amount) {
         dsl.update(table(name(SCHEMA, TX_TABLE)))
                 .set(field("amount"), amount)
+                .where(field("transaction_id").eq(transactionId))
+                .execute();
+    }
+
+    @Override
+    public void updateTypeAndDirection(UUID transactionId, Transaction.TransactionType type,
+                                       Transaction.TransactionDirection direction) {
+        dsl.update(table(name(SCHEMA, TX_TABLE)))
+                .set(field("type"), type.name())
+                .set(field("direction"), direction.name())
+                .where(field("transaction_id").eq(transactionId))
+                .execute();
+    }
+
+    @Override
+    public void updateIsRecurring(UUID transactionId, boolean isRecurring) {
+        dsl.update(table(name(SCHEMA, TX_TABLE)))
+                .set(field("is_recurring"), isRecurring)
+                .where(field("transaction_id").eq(transactionId))
+                .execute();
+    }
+
+    @Override
+    public void updateLinkedTransactionId(UUID transactionId, UUID linkedTransactionId) {
+        dsl.update(table(name(SCHEMA, TX_TABLE)))
+                .set(field("linked_transaction_id"), linkedTransactionId)
                 .where(field("transaction_id").eq(transactionId))
                 .execute();
     }

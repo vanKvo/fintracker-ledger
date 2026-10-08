@@ -40,7 +40,23 @@ public record Transaction(
     public static final String DEFAULT_CURRENCY = "USD";
 
     public enum TransactionSource    { STATEMENT_UPLOAD, BANK_SYNC, MANUAL_ENTRY }
-    public enum TransactionType      { EXPENSE, INCOME, REFUND, TRANSFER, ADJUSTMENT }
+
+    public enum TransactionType {
+        EXPENSE, INCOME, REFUND, TRANSFER, ADJUSTMENT;
+
+        /**
+         * TXT-01: EXPENSE is always money out; INCOME and REFUND always money in. TRANSFER and
+         * ADJUSTMENT may go either way. Mirrors transactions_type_direction_check (V23).
+         */
+        public boolean allows(TransactionDirection direction) {
+            return switch (this) {
+                case EXPENSE -> direction == TransactionDirection.DEBIT;
+                case INCOME, REFUND -> direction == TransactionDirection.CREDIT;
+                case TRANSFER, ADJUSTMENT -> true;
+            };
+        }
+    }
+
     public enum TransactionDirection { DEBIT, CREDIT }
     public enum TransactionStatus    { PENDING, POSTED, DELETED }
 }
