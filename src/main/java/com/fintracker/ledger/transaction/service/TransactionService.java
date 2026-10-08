@@ -65,8 +65,8 @@ public interface TransactionService {
     BigDecimal sumMonthlyExpenses(UUID userId, LocalDate start, LocalDate end);
 
     /**
-     * REQ-5.1 "Spend Amount Initialization". Sums approved expenses — POSTED status, PURCHASE
-     * type, not excluded, not a split parent — for a single category within [start, end].
+     * REQ-5.1 "Spend Amount Initialization" / TXT-02. Net spend — EXPENSE minus REFUND, POSTED,
+     * not excluded, not a split parent — for a single category within [start, end]; may be negative.
      * Category matching is case-insensitive. Returns {@link BigDecimal#ZERO} (never null) when
      * nothing matches.
      */

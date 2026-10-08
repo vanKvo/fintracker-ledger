@@ -28,8 +28,8 @@ public class JooqTransactionRepository implements TransactionRepository {
     private static final String SCHEMA   = "ledger";
     private static final String TX_TABLE = "transactions";
     private static final String SPLIT_CHILD_ALIAS = "split_child";
-    // Rows per INSERT statement in bulkInsertIgnoringDuplicates: 1,000 rows × 14 bound
-    // columns = 14,000 parameters per statement — well under Postgres's 65,535-parameter
+    // Rows per INSERT statement in bulkInsertIgnoringDuplicates: 1,000 rows × 16 bound
+    // columns = 16,000 parameters per statement — well under Postgres's 65,535-parameter
     // ceiling, and small enough that one parse/plan cycle stays cheap.
     private static final int BULK_INSERT_CHUNK_SIZE = 1_000;
 
@@ -106,6 +106,10 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .set(field("tx_date"), transaction.txDate())
                 .set(field("source"), transaction.source().name())
                 .set(field("type"), transaction.type().name())
+                .set(field("direction"), transaction.direction().name())
+                .set(field("currency"), transaction.currency())
+                .set(field("is_recurring"), transaction.isRecurring())
+                .set(field("linked_transaction_id"), transaction.linkedTransactionId())
                 .set(field("status"), transaction.status().name())
                 .set(field("is_excluded"), transaction.isExcluded())
                 // is_manual has been a plain DEFAULT FALSE column (not DB-computed) since
@@ -217,13 +221,14 @@ public class JooqTransactionRepository implements TransactionRepository {
                 var insert = txDsl.insertInto(table(name(SCHEMA, TX_TABLE)))
                         .columns(field("transaction_id"), field("account_id"), field("statement_id"),
                                 field("amount"), field("merchant"), field("category"), field("tags"),
-                                field("tx_date"), field("source"), field("type"), field("status"),
-                                field("is_excluded"), field("is_manual"), field("row_fingerprint"));
+                                field("tx_date"), field("source"), field("type"), field("direction"),
+                                field("currency"), field("status"), field("is_excluded"), field("is_manual"),
+                                field("row_fingerprint"));
                 for (var tx : chunk) {
                     insert.values(UUID.randomUUID(), tx.accountId(), statementId, tx.amount(), tx.merchant(),
                             tx.category(), tx.tags() != null ? tx.tags().toArray(String[]::new) : new String[0],
-                            tx.txDate(), tx.source().name(), tx.type().name(), tx.status().name(),
-                            tx.isExcluded(), tx.isManual(), tx.rowFingerprint());
+                            tx.txDate(), tx.source().name(), tx.type().name(), tx.direction().name(),
+                            tx.currency(), tx.status().name(), tx.isExcluded(), tx.isManual(), tx.rowFingerprint());
                 }
 
                 // The WHERE predicate is REQUIRED in the arbiter, not stylistic: Postgres infers
@@ -238,15 +243,16 @@ public class JooqTransactionRepository implements TransactionRepository {
         });
     }
 
+    /** TXT-02: only INCOME is income — refunds offset spending, transfers and adjustments are neither. */
     @Override
     public BigDecimal sumMonthlyIncome(UUID userId, LocalDate monthStart, LocalDate monthEnd) {
-        return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class)), BigDecimal.ZERO))
+        return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class).abs()), BigDecimal.ZERO))
                 .from(table(name(SCHEMA, TX_TABLE)))
                 .join(table(name(SCHEMA, "accounts"))).on(
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("CREDIT"))
+                .and(field(name(SCHEMA, TX_TABLE, "type")).eq(Transaction.TransactionType.INCOME.name()))
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
@@ -254,15 +260,16 @@ public class JooqTransactionRepository implements TransactionRepository {
                 .fetchOneInto(BigDecimal.class);
     }
 
+    /** TXT-02: net spend — EXPENSE minus REFUND; may be negative. */
     @Override
     public BigDecimal sumMonthlyExpenses(UUID userId, LocalDate monthStart, LocalDate monthEnd) {
-        return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class).abs()), BigDecimal.ZERO))
+        return dsl.select(DSL.coalesce(sum(netSpend()), BigDecimal.ZERO))
                 .from(table(name(SCHEMA, TX_TABLE)))
                 .join(table(name(SCHEMA, "accounts"))).on(
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
+                .and(isSpendingType())
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(monthStart).and(monthEnd))
@@ -276,19 +283,19 @@ public class JooqTransactionRepository implements TransactionRepository {
      * match {@link com.fintracker.ledger.transaction.model.TransactionCategory#resolve}, which
      * canonicalizes on write but tolerates legacy free-text casing already in the column.
      *
-     * <p>The PURCHASE/POSTED/is_excluded/split-parent predicates are deliberately identical to
+     * <p>The type/POSTED/is_excluded/split-parent predicates are deliberately identical to
      * {@link #sumMonthlyExpenses} so that the per-category sums of a month reconcile to that
      * month's total rather than drifting from it.
      */
     @Override
     public BigDecimal sumMonthlyExpensesPerCategory(UUID userId, LocalDate monthStart, LocalDate monthEnd, String category) {
-        return dsl.select(DSL.coalesce(sum(field("amount", BigDecimal.class).abs()), BigDecimal.ZERO))
+        return dsl.select(DSL.coalesce(sum(netSpend()), BigDecimal.ZERO))
                 .from(table(name(SCHEMA, TX_TABLE)))
                 .join(table(name(SCHEMA, "accounts"))).on(
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
+                .and(isSpendingType())
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "category"), String.class).equalIgnoreCase(category))
@@ -305,7 +312,7 @@ public class JooqTransactionRepository implements TransactionRepository {
         var monthStart = field("date_trunc('month', {0})::date", LocalDate.class,
                 field(name(SCHEMA, TX_TABLE, "tx_date")));
         var categoryKey = lower(field(name(SCHEMA, TX_TABLE, "category"), String.class));
-        var total = sum(field(name(SCHEMA, TX_TABLE, "amount"), BigDecimal.class).abs());
+        var total = sum(netSpend());
 
         // // Single annual aggregate. Filters strictly match sumMonthlyExpensesPerCategory 
         // so monthly and yearly spending totals are always consistent.
@@ -315,7 +322,7 @@ public class JooqTransactionRepository implements TransactionRepository {
                         field(name(SCHEMA, TX_TABLE, "account_id"))
                                 .eq(field(name(SCHEMA, "accounts", "account_id"))))
                 .where(field(name(SCHEMA, "accounts", "user_id")).eq(userId))
-                .and(field(name(SCHEMA, TX_TABLE, "type")).eq("PURCHASE"))
+                .and(isSpendingType())
                 .and(field(name(SCHEMA, TX_TABLE, "status")).eq("POSTED"))
                 .and(field(name(SCHEMA, TX_TABLE, "is_excluded")).isFalse())
                 .and(field(name(SCHEMA, TX_TABLE, "tx_date")).between(rangeStart).and(rangeEnd))
@@ -337,6 +344,23 @@ public class JooqTransactionRepository implements TransactionRepository {
                             BigDecimal::add);
         }
         return byMonth;
+    }
+
+    /**
+     * TXT-02: a row's contribution to net spend. Sign comes from the type, not the stored amount,
+     * since statement rows and manual rows don't share a sign convention.
+     */
+    private org.jooq.Field<BigDecimal> netSpend() {
+        var magnitude = field(name(SCHEMA, TX_TABLE, "amount"), BigDecimal.class).abs();
+        return when(field(name(SCHEMA, TX_TABLE, "type")).eq(Transaction.TransactionType.REFUND.name()),
+                magnitude.neg())
+                .otherwise(magnitude);
+    }
+
+    /** TXT-02: EXPENSE and REFUND are the only types that move spending totals. */
+    private Condition isSpendingType() {
+        return field(name(SCHEMA, TX_TABLE, "type")).in(
+                Transaction.TransactionType.EXPENSE.name(), Transaction.TransactionType.REFUND.name());
     }
 
     /**
@@ -392,7 +416,11 @@ public class JooqTransactionRepository implements TransactionRepository {
                 record.get("is_excluded", Boolean.class),
                 record.get("is_manual", Boolean.class),
                 record.get("created_at", OffsetDateTime.class),
-                record.get("row_fingerprint", String.class)
+                record.get("row_fingerprint", String.class),
+                Transaction.TransactionDirection.valueOf(record.get("direction", String.class)),
+                record.get("currency", String.class),
+                record.get("is_recurring", Boolean.class),
+                record.get("linked_transaction_id", UUID.class)
         );
     }
 }

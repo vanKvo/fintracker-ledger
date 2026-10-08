@@ -42,6 +42,8 @@ public class TransactionServiceImpl implements TransactionService {
     // with a numeric-overflow error at the DB, so they are rejected per row instead.
     private static final BigDecimal MAX_STATEMENT_ROW_AMOUNT = new BigDecimal("9999999999999.99");
 
+    private static final java.util.regex.Pattern CURRENCY_CODE = java.util.regex.Pattern.compile("[A-Z]{3}");
+
     private final TransactionRepository transactionRepository;
     private final StatementRepository statementRepository;
     private final StatementService statementService;
@@ -92,14 +94,20 @@ public class TransactionServiceImpl implements TransactionService {
                 failedRows.add(new BulkCreateTransactionsResponse.FailedRow(i, rejection));
                 continue;
             }
+            var direction = Transaction.TransactionDirection.valueOf(line.direction());
+            if (line.type() == null) {
+                log.warn("Statement row has no type; defaulting from direction statementId={} rowIndex={} direction={}",
+                        statementId, i, direction);
+            }
             rows.add(new Transaction(
                     null, statement.accountId(), statementId, null, null,
                     line.amount(), line.merchant(), line.category(), null,
                     List.of(), line.date(),
                     Transaction.TransactionSource.STATEMENT_UPLOAD,
-                    Transaction.TransactionType.valueOf(line.type()),
+                    resolveType(line.type(), direction),
                     Transaction.TransactionStatus.PENDING,
-                    false, false, null, line.rowFingerprint()));
+                    false, false, null, line.rowFingerprint(),
+                    direction, currencyOrDefault(line.currency()), null, null));
         }
 
         int insertedCount = rows.isEmpty()
@@ -149,11 +157,16 @@ public class TransactionServiceImpl implements TransactionService {
         if (line.category().length() > 100) {
             return "category must be at most 100 characters";
         }
-        try {
-            Transaction.TransactionType.valueOf(line.type());
-        } catch (IllegalArgumentException | NullPointerException ex) {
+        if (line.type() != null && !isEnumValue(Transaction.TransactionType.class, line.type())) {
             return "type must be one of %s.".formatted(
                     Arrays.toString(Transaction.TransactionType.values()));
+        }
+        if (line.direction() == null || !isEnumValue(Transaction.TransactionDirection.class, line.direction())) {
+            return "direction must be one of %s.".formatted(
+                    Arrays.toString(Transaction.TransactionDirection.values()));
+        }
+        if (line.currency() != null && !CURRENCY_CODE.matcher(line.currency()).matches()) {
+            return "currency must be a 3-letter ISO 4217 code";
         }
         if (line.rowFingerprint() == null || line.rowFingerprint().isBlank()) {
             return "rowFingerprint is required";
@@ -175,13 +188,25 @@ public class TransactionServiceImpl implements TransactionService {
             throw new IllegalArgumentException("Transaction amount must not be zero.");
         }
 
-        Transaction.TransactionType type;
-        try {
-            type = Transaction.TransactionType.valueOf(request.type());
-        } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException(
-                    "type must be one of %s.".formatted(
-                            Arrays.toString(Transaction.TransactionType.values())));
+        if (request.direction() == null
+                || !isEnumValue(Transaction.TransactionDirection.class, request.direction())) {
+            throw new IllegalArgumentException("direction must be one of %s.".formatted(
+                    Arrays.toString(Transaction.TransactionDirection.values())));
+        }
+        var direction = Transaction.TransactionDirection.valueOf(request.direction());
+
+        if (request.type() != null && !isEnumValue(Transaction.TransactionType.class, request.type())) {
+            throw new IllegalArgumentException("type must be one of %s.".formatted(
+                    Arrays.toString(Transaction.TransactionType.values())));
+        }
+        if (request.type() == null) {
+            log.warn("Manual transaction has no type; defaulting from direction accountId={} direction={}",
+                    request.accountId(), direction);
+        }
+        var type = resolveType(request.type(), direction);
+
+        if (request.currency() != null && !CURRENCY_CODE.matcher(request.currency()).matches()) {
+            throw new IllegalArgumentException("currency must be a 3-letter ISO 4217 code");
         }
 
         // REQ-2.3.1.D: date defaults to today when the request omits it.
@@ -195,7 +220,8 @@ public class TransactionServiceImpl implements TransactionService {
                 request.tags(), txDate,
                 Transaction.TransactionSource.MANUAL_ENTRY, type,
                 Transaction.TransactionStatus.POSTED,
-                false, true, null, null);
+                false, true, null, null,
+                direction, currencyOrDefault(request.currency()), null, null);
 
         var saved = transactionRepository.save(transaction);
         log.info("Created manual transaction transactionId={} userId={}", saved.transactionId(), userId);
@@ -351,7 +377,26 @@ public class TransactionServiceImpl implements TransactionService {
                 null, parent.accountId(), parent.statementId(), parent.transactionId(),
                 null, split.amount(), parent.merchant(), TransactionCategory.resolve(split.category()).label(),
                 parent.description(), new ArrayList<>(), parent.txDate(), parent.source(), parent.type(),
-                parent.status(), parent.isExcluded(), parent.isManual(), null, null
+                parent.status(), parent.isExcluded(), parent.isManual(), null, null,
+                parent.direction(), parent.currency(), parent.isRecurring(), null
         );
+    }
+
+    /** TXT-01 [Fail]: a missing type defaults to INCOME for a credit, EXPENSE for a debit. */
+    private static Transaction.TransactionType resolveType(String type, Transaction.TransactionDirection direction) {
+        if (type != null) {
+            return Transaction.TransactionType.valueOf(type);
+        }
+        return direction == Transaction.TransactionDirection.CREDIT
+                ? Transaction.TransactionType.INCOME
+                : Transaction.TransactionType.EXPENSE;
+    }
+
+    private static String currencyOrDefault(String currency) {
+        return currency != null ? currency : Transaction.DEFAULT_CURRENCY;
+    }
+
+    private static <E extends Enum<E>> boolean isEnumValue(Class<E> enumType, String value) {
+        return Arrays.stream(enumType.getEnumConstants()).anyMatch(e -> e.name().equals(value));
     }
 }

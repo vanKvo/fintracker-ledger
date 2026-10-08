@@ -28,9 +28,19 @@ public record Transaction(
         // date/merchant/amount, computed by the data-pipeline. Null for manual/bank-sync
         // rows; the partial unique index idx_unique_statement_row_fingerprint (V12)
         // ignores nulls.
-        String rowFingerprint
+        String rowFingerprint,
+        // TXT-01: money out (DEBIT) or in (CREDIT), independent of type.
+        TransactionDirection direction,
+        // ISO 4217 code; DEFAULT_CURRENCY when the caller supplies none.
+        String currency,
+        Boolean isRecurring,
+        // TXT-01: e.g. a refund's original expense. Not set at ingestion.
+        UUID linkedTransactionId
 ) {
-    public enum TransactionSource { STATEMENT_UPLOAD, BANK_SYNC, MANUAL_ENTRY }
-    public enum TransactionType   { PURCHASE, CREDIT }
-    public enum TransactionStatus { PENDING, POSTED, DELETED }
+    public static final String DEFAULT_CURRENCY = "USD";
+
+    public enum TransactionSource    { STATEMENT_UPLOAD, BANK_SYNC, MANUAL_ENTRY }
+    public enum TransactionType      { EXPENSE, INCOME, REFUND, TRANSFER, ADJUSTMENT }
+    public enum TransactionDirection { DEBIT, CREDIT }
+    public enum TransactionStatus    { PENDING, POSTED, DELETED }
 }

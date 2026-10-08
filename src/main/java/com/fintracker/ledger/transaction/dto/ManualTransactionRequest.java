@@ -13,9 +13,9 @@ import java.util.UUID;
  * Business Constraints, it defaults to today when omitted; TransactionServiceImpl applies that
  * default rather than rejecting a request that leaves it blank.
  *
- * <p>amount is deliberately NOT {@code @DecimalMin} — transactions in this system use negative
- * amounts for expenses (PURCHASE) and positive amounts for income (CREDIT), e.g. a $50 grocery
- * purchase is stored as -50.00; a floor of 0.01 would reject every expense entry. The
+ * <p>amount is deliberately NOT {@code @DecimalMin} — manual entries use negative amounts for
+ * money out (DEBIT) and positive amounts for money in (CREDIT), e.g. a $50 grocery purchase is
+ * stored as -50.00; a floor of 0.01 would reject every expense entry. The
  * non-zero check (matching the ledger.transactions {@code CHECK (amount != 0)} constraint and
  * the same rule updateAmount() already enforces) happens in
  * TransactionServiceImpl.createManualTransaction instead.
@@ -27,5 +27,8 @@ public record ManualTransactionRequest(
         @NotBlank String category,
         List<String> tags,
         LocalDate txDate,
-        @NotNull String type  // PURCHASE or CREDIT
+        // TXT-01: EXPENSE, INCOME, REFUND, TRANSFER or ADJUSTMENT; missing defaults from direction.
+        String type,
+        @NotNull String direction,  // DEBIT or CREDIT
+        String currency             // ISO 4217; defaults to USD
 ) {}

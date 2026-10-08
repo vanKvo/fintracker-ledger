@@ -38,7 +38,10 @@ public record BulkCreateTransactionsRequest(
             @NotNull BigDecimal amount,
             @NotNull String category,
             String subCategory,
-            @NotNull @Pattern(regexp = "PURCHASE|CREDIT") String type,
-            @NotNull @Pattern(regexp = "[a-f0-9]{64}") String rowFingerprint
+            // TXT-01: optional — a missing type defaults from direction (see TransactionServiceImpl).
+            @Pattern(regexp = "EXPENSE|INCOME|REFUND|TRANSFER|ADJUSTMENT") String type,
+            @NotNull @Pattern(regexp = "[a-f0-9]{64}") String rowFingerprint,
+            @NotNull @Pattern(regexp = "DEBIT|CREDIT") String direction,
+            @Pattern(regexp = "[A-Z]{3}") String currency
     ) {}
 }
