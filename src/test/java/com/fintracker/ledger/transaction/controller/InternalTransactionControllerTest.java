@@ -112,4 +112,24 @@ class InternalTransactionControllerTest {
 
         verifyNoInteractions(transactionService);
     }
+
+    // TXT-01 [Fail]: a row with no type is a client error — the whole request is rejected with
+    // 400 by bean validation, before the service is ever called.
+    @Test
+    @DisplayName("TXT-01: a statement row with no type responds 400 and never reaches the service")
+    void rowWithoutTypeResponds400() throws Exception {
+        var body = """
+                {"statementId":"%s","transactions":[
+                  {"date":"2026-08-15","merchant":"Corner Store","amount":-42.50,
+                   "category":"Groceries","direction":"DEBIT","rowFingerprint":"%s"}]}
+                """.formatted(UUID.randomUUID(), "a".repeat(64));
+
+        mockMvc.perform(post(BULK_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .requestAttr("userId", UUID.randomUUID())
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(transactionService);
+    }
 }

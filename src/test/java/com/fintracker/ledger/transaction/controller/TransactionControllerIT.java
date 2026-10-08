@@ -27,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * TXT-01 through the public transactions API: the missing-type fallback, the type/direction rule
+ * TXT-01 through the public transactions API: a missing type is rejected, the type/direction rule
  * (EXPENSE is money out; INCOME and REFUND are money in), and the new transaction-table fields on
  * create, list and update.
  */
@@ -98,13 +98,17 @@ class TransactionControllerIT extends AbstractIntegrationTest {
     // ------------------------------------------------------------------- create
 
     @ParameterizedTest
-    @CsvSource({"CREDIT,INCOME", "DEBIT,EXPENSE"})
-    @DisplayName("POST without a type defaults to INCOME for money in and EXPENSE for money out")
-    void createWithoutTypeDefaultsFromDirection(String direction, String expectedType) throws Exception {
-        var created = create(manualBody(null, direction, ""));
+    @CsvSource({"CREDIT", "DEBIT"})
+    @DisplayName("POST without a type responds 400 and stores nothing")
+    void createWithoutTypeResponds400(String direction) throws Exception {
+        mockMvc.perform(post(TRANSACTIONS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(IDENTITY_HEADER, userId.toString())
+                        .content(manualBody(null, direction, "")))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
 
-        assertThat(created.get("type").asText()).isEqualTo(expectedType);
-        assertThat(created.get("direction").asText()).isEqualTo(direction);
+        assertThat(list("")).isEmpty();
     }
 
     @ParameterizedTest

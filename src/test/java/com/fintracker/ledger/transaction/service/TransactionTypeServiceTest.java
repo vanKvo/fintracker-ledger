@@ -105,16 +105,14 @@ class TransactionTypeServiceTest {
         }
 
         @ParameterizedTest
-        @CsvSource({"CREDIT,INCOME", "DEBIT,EXPENSE"})
-        @DisplayName("a missing type defaults to INCOME for a credit and EXPENSE for a debit")
-        void missingTypeDefaultsFromDirection(String direction, String expectedType) {
-            stubInsertAll();
-
+        @CsvSource({"CREDIT", "DEBIT"})
+        @DisplayName("a row with no type is reported as a failedRow, never defaulted")
+        void missingTypeIsAFailedRow(String direction) {
             var result = transactionService.bulkCreateFromStatement(statementId, userId,
                     List.of(line(null, direction, null)));
 
-            assertThat(result.failedRows()).isEmpty();
-            assertThat(insertedRows().get(0).type()).isEqualTo(Transaction.TransactionType.valueOf(expectedType));
+            assertThat(result.failedRows()).hasSize(1);
+            verify(transactionRepository, never()).bulkInsertIgnoringDuplicates(any(), anyList());
         }
 
         @Test
@@ -219,15 +217,15 @@ class TransactionTypeServiceTest {
         }
 
         @ParameterizedTest
-        @CsvSource({"CREDIT,INCOME", "DEBIT,EXPENSE"})
-        @DisplayName("a missing type defaults to INCOME for a credit and EXPENSE for a debit")
-        void missingTypeDefaultsFromDirection(String direction, String expectedType) {
+        @CsvSource({"CREDIT", "DEBIT"})
+        @DisplayName("a missing type is rejected, never defaulted")
+        void missingTypeIsRejected(String direction) {
             when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
-            when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-            transactionService.createManualTransaction(request(null, direction, null), userId);
-
-            assertThat(saved().type()).isEqualTo(Transaction.TransactionType.valueOf(expectedType));
+            assertThatThrownBy(() -> transactionService.createManualTransaction(
+                    request(null, direction, null), userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).save(any());
         }
 
         @Test
