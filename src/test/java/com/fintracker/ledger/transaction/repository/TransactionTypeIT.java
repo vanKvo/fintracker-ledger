@@ -6,6 +6,7 @@ import com.fintracker.ledger.transaction.model.Transaction;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -35,14 +36,36 @@ class TransactionTypeIT extends AbstractIntegrationTest {
     // ------------------------------------------------------------------ schema (TXT-01)
 
     @ParameterizedTest
-    @ValueSource(strings = {"EXPENSE", "INCOME", "REFUND", "TRANSFER", "ADJUSTMENT"})
+    @CsvSource({"EXPENSE,DEBIT", "INCOME,CREDIT", "REFUND,CREDIT", "TRANSFER,DEBIT", "ADJUSTMENT,CREDIT"})
     @DisplayName("the database accepts each of the five transaction types")
-    void acceptsEachOfTheFiveTypes(String type) throws SQLException {
+    void acceptsEachOfTheFiveTypes(String type, String direction) throws SQLException {
         var accountId = insertAccount(UUID.randomUUID());
 
-        var txId = insertTransaction(accountId, "-10.00", type, "DEBIT", "POSTED", LocalDate.now());
+        var txId = insertTransaction(accountId, "-10.00", type, direction, "POSTED", LocalDate.now());
 
         assertThat(readColumn(txId, "type")).isEqualTo(type);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"EXPENSE,CREDIT", "INCOME,DEBIT", "REFUND,DEBIT"})
+    @DisplayName("the database rejects EXPENSE as money in and INCOME or REFUND as money out")
+    void rejectsTypeDirectionMismatch(String type, String direction) throws SQLException {
+        var accountId = insertAccount(UUID.randomUUID());
+
+        assertThatThrownBy(() -> insertTransaction(accountId, "-10.00", type, direction, "POSTED", LocalDate.now()))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("transactions_type_direction_check");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"TRANSFER,DEBIT", "TRANSFER,CREDIT", "ADJUSTMENT,DEBIT", "ADJUSTMENT,CREDIT"})
+    @DisplayName("TRANSFER and ADJUSTMENT may go either direction")
+    void transferAndAdjustmentAcceptEitherDirection(String type, String direction) throws SQLException {
+        var accountId = insertAccount(UUID.randomUUID());
+
+        var txId = insertTransaction(accountId, "-10.00", type, direction, "POSTED", LocalDate.now());
+
+        assertThat(readColumn(txId, "direction")).isEqualTo(direction);
     }
 
     @ParameterizedTest

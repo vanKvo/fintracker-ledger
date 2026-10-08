@@ -6,6 +6,7 @@ import com.fintracker.ledger.statement.repository.StatementRepository;
 import com.fintracker.ledger.statement.service.StatementService;
 import com.fintracker.ledger.transaction.dto.BulkCreateTransactionsRequest;
 import com.fintracker.ledger.transaction.dto.ManualTransactionRequest;
+import com.fintracker.ledger.transaction.exception.TransactionNotFoundException;
 import com.fintracker.ledger.transaction.model.Transaction;
 import com.fintracker.ledger.transaction.repository.TransactionRepository;
 import com.fintracker.ledger.transaction.service.impl.TransactionServiceImpl;
@@ -150,6 +151,17 @@ class TransactionTypeServiceTest {
             assertThat(insertedRows()).extracting(Transaction::currency).containsExactly("USD", "CAD");
         }
 
+        @ParameterizedTest
+        @CsvSource({"EXPENSE,CREDIT", "INCOME,DEBIT", "REFUND,DEBIT"})
+        @DisplayName("EXPENSE as money in, or INCOME/REFUND as money out, is reported as a failedRow")
+        void typeDirectionMismatchIsAFailedRow(String type, String direction) {
+            var result = transactionService.bulkCreateFromStatement(statementId, userId,
+                    List.of(line(type, direction, null)));
+
+            assertThat(result.failedRows()).hasSize(1);
+            verify(transactionRepository, never()).bulkInsertIgnoringDuplicates(any(), anyList());
+        }
+
         @Test
         @DisplayName("a currency that is not a 3-letter code is reported as a failedRow")
         void invalidCurrencyIsAFailedRow() {
@@ -166,7 +178,14 @@ class TransactionTypeServiceTest {
 
         private ManualTransactionRequest request(String type, String direction, String currency) {
             return new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("-30.00"),
-                    "Store", "Shopping", List.of(), LocalDate.of(2026, 8, 1), type, direction, currency);
+                    "Store", "Shopping", List.of(), LocalDate.of(2026, 8, 1), type, direction, currency,
+                    null, null);
+        }
+
+        private ManualTransactionRequest linkedRequest(Boolean isRecurring, UUID linkedTransactionId) {
+            return new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("30.00"),
+                    "Store", "Shopping", List.of(), LocalDate.of(2026, 8, 1), "REFUND", "CREDIT", null,
+                    isRecurring, linkedTransactionId);
         }
 
         private Transaction saved() {
@@ -222,6 +241,47 @@ class TransactionTypeServiceTest {
             verify(transactionRepository, never()).save(any());
         }
 
+        @ParameterizedTest
+        @CsvSource({"EXPENSE,CREDIT", "INCOME,DEBIT", "REFUND,DEBIT"})
+        @DisplayName("EXPENSE as money in, or INCOME/REFUND as money out, is rejected")
+        void typeDirectionMismatchIsRejected(String type, String direction) {
+            when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
+
+            assertThatThrownBy(() -> transactionService.createManualTransaction(
+                    request(type, direction, null), userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("stores isRecurring and a link to one of the user's own transactions")
+        void storesRecurringAndLink() {
+            var expenseId = UUID.randomUUID();
+            when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
+            when(transactionRepository.findByIdAndUserId(expenseId, userId))
+                    .thenReturn(Optional.of(transaction(expenseId, Transaction.TransactionType.EXPENSE,
+                            Transaction.TransactionDirection.DEBIT)));
+            when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+            transactionService.createManualTransaction(linkedRequest(true, expenseId), userId);
+
+            assertThat(saved().isRecurring()).isTrue();
+            assertThat(saved().linkedTransactionId()).isEqualTo(expenseId);
+        }
+
+        @Test
+        @DisplayName("a link to a transaction the user doesn't own is rejected")
+        void linkToForeignTransactionIsRejected() {
+            var foreignId = UUID.randomUUID();
+            when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
+            when(transactionRepository.findByIdAndUserId(foreignId, userId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> transactionService.createManualTransaction(
+                    linkedRequest(null, foreignId), userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).save(any());
+        }
+
         @Test
         @DisplayName("a missing direction is rejected")
         void missingDirectionIsRejected() {
@@ -256,5 +316,113 @@ class TransactionTypeServiceTest {
             assertThat(child.direction()).isEqualTo(Transaction.TransactionDirection.CREDIT);
             assertThat(child.currency()).isEqualTo("CAD");
         });
+    }
+
+    @Nested
+    @DisplayName("updates")
+    class Updates {
+
+        private final UUID txId = UUID.randomUUID();
+
+        private void existing(Transaction.TransactionType type, Transaction.TransactionDirection direction) {
+            when(transactionRepository.findByIdAndUserId(txId, userId))
+                    .thenReturn(Optional.of(transaction(txId, type, direction)));
+        }
+
+        @Test
+        @DisplayName("changing type and direction together stores both")
+        void updatesTypeAndDirection() {
+            existing(Transaction.TransactionType.EXPENSE, Transaction.TransactionDirection.DEBIT);
+
+            transactionService.updateTypeAndDirection(txId, "REFUND", "CREDIT", userId);
+
+            verify(transactionRepository).updateTypeAndDirection(txId,
+                    Transaction.TransactionType.REFUND, Transaction.TransactionDirection.CREDIT);
+        }
+
+        @Test
+        @DisplayName("changing only the type keeps the existing direction")
+        void typeOnlyKeepsDirection() {
+            existing(Transaction.TransactionType.EXPENSE, Transaction.TransactionDirection.DEBIT);
+
+            transactionService.updateTypeAndDirection(txId, "TRANSFER", null, userId);
+
+            verify(transactionRepository).updateTypeAndDirection(txId,
+                    Transaction.TransactionType.TRANSFER, Transaction.TransactionDirection.DEBIT);
+        }
+
+        @Test
+        @DisplayName("a type that conflicts with the existing direction is rejected")
+        void typeConflictingWithExistingDirectionIsRejected() {
+            existing(Transaction.TransactionType.EXPENSE, Transaction.TransactionDirection.DEBIT);
+
+            assertThatThrownBy(() -> transactionService.updateTypeAndDirection(txId, "INCOME", null, userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).updateTypeAndDirection(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("updating type on another user's transaction is not found")
+        void updateOnForeignTransactionIsNotFound() {
+            when(transactionRepository.findByIdAndUserId(txId, userId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> transactionService.updateTypeAndDirection(txId, "EXPENSE", "DEBIT", userId))
+                    .isInstanceOf(TransactionNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("isRecurring can be set")
+        void updatesRecurring() {
+            existing(Transaction.TransactionType.EXPENSE, Transaction.TransactionDirection.DEBIT);
+
+            transactionService.updateRecurring(txId, true, userId);
+
+            verify(transactionRepository).updateIsRecurring(txId, true);
+        }
+
+        @Test
+        @DisplayName("a transaction can be linked to another of the user's transactions")
+        void linksToOwnTransaction() {
+            var expenseId = UUID.randomUUID();
+            existing(Transaction.TransactionType.REFUND, Transaction.TransactionDirection.CREDIT);
+            when(transactionRepository.findByIdAndUserId(expenseId, userId))
+                    .thenReturn(Optional.of(transaction(expenseId, Transaction.TransactionType.EXPENSE,
+                            Transaction.TransactionDirection.DEBIT)));
+
+            transactionService.linkTransaction(txId, expenseId, userId);
+
+            verify(transactionRepository).updateLinkedTransactionId(txId, expenseId);
+        }
+
+        @Test
+        @DisplayName("a transaction cannot be linked to itself")
+        void cannotLinkToItself() {
+            existing(Transaction.TransactionType.REFUND, Transaction.TransactionDirection.CREDIT);
+
+            assertThatThrownBy(() -> transactionService.linkTransaction(txId, txId, userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).updateLinkedTransactionId(any(), any());
+        }
+
+        @Test
+        @DisplayName("a link to a transaction the user doesn't own is rejected")
+        void cannotLinkToForeignTransaction() {
+            var foreignId = UUID.randomUUID();
+            existing(Transaction.TransactionType.REFUND, Transaction.TransactionDirection.CREDIT);
+            when(transactionRepository.findByIdAndUserId(foreignId, userId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> transactionService.linkTransaction(txId, foreignId, userId))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verify(transactionRepository, never()).updateLinkedTransactionId(any(), any());
+        }
+    }
+
+    private static Transaction transaction(UUID id, Transaction.TransactionType type,
+                                           Transaction.TransactionDirection direction) {
+        return new Transaction(id, UUID.randomUUID(), null, null, null,
+                new BigDecimal("10.00"), "Store", "Shopping", null, List.of(),
+                LocalDate.now(), Transaction.TransactionSource.MANUAL_ENTRY,
+                type, Transaction.TransactionStatus.POSTED,
+                false, true, null, null, direction, "USD", null, null);
     }
 }

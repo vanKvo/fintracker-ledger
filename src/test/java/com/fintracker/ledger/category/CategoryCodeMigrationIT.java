@@ -132,7 +132,7 @@ class CategoryCodeMigrationIT extends AbstractIntegrationTest {
         }
         String url = "jdbc:postgresql://%s:%d/%s".formatted(POSTGRES.getHost(), POSTGRES.getMappedPort(5432), db);
 
-        migrate(url, "20");
+        migrate(url, "20", false);
         UUID othersId;
         UUID diningId;
         try (var conn = DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
@@ -148,7 +148,9 @@ class CategoryCodeMigrationIT extends AbstractIntegrationTest {
             insertTransaction(stmt, accountId, "Dining", diningId);
         }
 
-        migrate(url, null);
+        // Stop at V21 (with the category seed): later migrations assume rows in their own
+        // shape, and pre-upgrade data is fixed by one-time scripts, not migrations.
+        migrate(url, "21", true);
 
         try (var conn = DriverManager.getConnection(url, POSTGRES.getUsername(), POSTGRES.getPassword());
              var stmt = conn.createStatement()) {
@@ -169,14 +171,15 @@ class CategoryCodeMigrationIT extends AbstractIntegrationTest {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
-    private static void migrate(String url, String target) {
+    private static void migrate(String url, String target, boolean withRepeatables) {
         var config = Flyway.configure()
                 .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration");
-        if (target != null) {
+                .locations("classpath:db/migration")
+                .target(target);
+        if (!withRepeatables) {
             // Flyway applies repeatable migrations on every migrate, even with a target; a real
             // database at V20 never runs R__System_Categories without V21, so keep them out here.
-            config.target(target).repeatableSqlMigrationPrefix("__no_repeatables__");
+            config.repeatableSqlMigrationPrefix("__no_repeatables__");
         }
         config.load().migrate();
     }

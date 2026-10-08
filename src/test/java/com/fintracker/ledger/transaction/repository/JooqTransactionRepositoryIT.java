@@ -104,7 +104,7 @@ class JooqTransactionRepositoryIT extends AbstractIntegrationTest {
         var parentId = insertTransactionAsSuperuser(accountId, new BigDecimal("-100.00"));
         UserContextHolder.set(userId);
 
-        var filter = new TransactionFilter(userId, null, null, null, null, null, null, null, 0, 50);
+        var filter = new TransactionFilter(userId, null, null, null, null, null, null, null, null, null, 0, 50);
 
         assertThat(transactionRepository.findAll(filter))
                 .extracting(Transaction::transactionId)

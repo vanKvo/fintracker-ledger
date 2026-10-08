@@ -597,7 +597,7 @@ class TransactionServiceTest {
         void shouldSaveWithManualEntrySourceIsManualTrueAndPostedStatus() {
             var accountId = UUID.randomUUID();
             var request = new ManualTransactionRequest(accountId, new BigDecimal("-42.50"),
-                    "Corner Store", "Groceries", List.of(), LocalDate.of(2026, 6, 1), "EXPENSE", "DEBIT", null);
+                    "Corner Store", "Groceries", List.of(), LocalDate.of(2026, 6, 1), "EXPENSE", "DEBIT", null, null, null);
             when(accountRepository.existsByIdAndUserId(accountId, userId)).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -620,7 +620,7 @@ class TransactionServiceTest {
         @DisplayName("REQ-2.3.1.D: should default txDate to today when the request omits it")
         void shouldDefaultTxDateToTodayWhenNotProvided() {
             var request = new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), null, "EXPENSE", "DEBIT", null);
+                    "Corner Store", "Groceries", List.of(), null, "EXPENSE", "DEBIT", null, null, null);
             when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -634,7 +634,7 @@ class TransactionServiceTest {
         void shouldPreserveExplicitTxDate() {
             var explicitDate = LocalDate.of(2026, 3, 15);
             var request = new ManualTransactionRequest(UUID.randomUUID(), new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), explicitDate, "EXPENSE", "DEBIT", null);
+                    "Corner Store", "Groceries", List.of(), explicitDate, "EXPENSE", "DEBIT", null, null, null);
             when(accountRepository.existsByIdAndUserId(any(), eq(userId))).thenReturn(true);
             when(transactionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -654,7 +654,7 @@ class TransactionServiceTest {
         void shouldRejectWhenAccountDoesNotBelongToUser() {
             var foreignAccountId = UUID.randomUUID();
             var request = new ManualTransactionRequest(foreignAccountId, new BigDecimal("-10.00"),
-                    "Corner Store", "Groceries", List.of(), LocalDate.now(), "EXPENSE", "DEBIT", null);
+                    "Corner Store", "Groceries", List.of(), LocalDate.now(), "EXPENSE", "DEBIT", null, null, null);
 
             assertThatThrownBy(() -> transactionService.createManualTransaction(request, userId))
                     .isInstanceOf(IllegalArgumentException.class);
