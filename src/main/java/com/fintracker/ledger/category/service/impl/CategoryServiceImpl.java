@@ -1,7 +1,6 @@
 package com.fintracker.ledger.category.service.impl;
 
 import com.fintracker.ledger.category.exception.CategoryAlreadyExistsException;
-import com.fintracker.ledger.category.exception.CategoryInUseException;
 import com.fintracker.ledger.category.exception.CategoryLimitExceededException;
 import com.fintracker.ledger.category.exception.CategoryNotFoundException;
 import com.fintracker.ledger.category.exception.InvalidCategoryNameException;
@@ -46,6 +45,12 @@ public class CategoryServiceImpl implements CategoryService {
             throw new CategoryLimitExceededException();
         }
 
+        // DP-LEDGER-CATEGORIES-02: a deactivated category with this name comes back under its old
+        // id, so transactions that still reference it rejoin it (and the unique name index holds).
+        var deactivated = categoryRepository.findInactiveUserCategoryByName(normalized, userId);
+        if (deactivated.isPresent()) {
+            return categoryRepository.reactivate(deactivated.get().categoryId());
+        }
         return categoryRepository.insert(UUID.randomUUID(), normalized, userId);
     }
 
@@ -86,11 +91,9 @@ public class CategoryServiceImpl implements CategoryService {
         var existing = requireAccessible(categoryId, userId);
         requireNotSystem(existing);
 
-        var referencingCount = transactionRepository.countByCategoryIdAndUserId(categoryId, userId);
-        if (referencingCount > 0) {
-            if (reassignToCategoryId == null) {
-                throw new CategoryInUseException(categoryId, referencingCount);
-            }
+        // DP-LEDGER-CATEGORIES-02: "delete" deactivates. Reassignment is optional — without it, the
+        // category's transactions keep pointing at it, which stays valid because it is never removed.
+        if (reassignToCategoryId != null) {
             if (reassignToCategoryId.equals(categoryId)) {
                 throw new IllegalArgumentException(
                         "reassignToCategoryId must not be the category being deleted.");
@@ -99,7 +102,7 @@ public class CategoryServiceImpl implements CategoryService {
             transactionRepository.reassignCategory(categoryId, reassignToCategoryId, userId);
         }
 
-        categoryRepository.delete(categoryId);
+        categoryRepository.deactivate(categoryId);
     }
 
     private Category requireAccessible(UUID categoryId, UUID userId) {

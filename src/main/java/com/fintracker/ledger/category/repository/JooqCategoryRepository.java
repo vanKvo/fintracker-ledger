@@ -51,6 +51,7 @@ public class JooqCategoryRepository implements CategoryRepository {
                 .from(name(SCHEMA, TABLE))
                 .where(field(name(SCHEMA, TABLE, "level")).eq("SYSTEM")
                         .or(field(name(SCHEMA, TABLE, "user_id")).eq(userId)))
+                .and(isActive())
                 .fetch(this::map);
     }
 
@@ -60,7 +61,8 @@ public class JooqCategoryRepository implements CategoryRepository {
                 .from(name(SCHEMA, TABLE))
                 .where(field(name(SCHEMA, TABLE, "category_name")).eq(normalizedName))
                 .and(field(name(SCHEMA, TABLE, "level")).eq("SYSTEM")
-                        .or(field(name(SCHEMA, TABLE, "user_id")).eq(userId))));
+                        .or(field(name(SCHEMA, TABLE, "user_id")).eq(userId)))
+                .and(isActive()));
     }
 
     @Override
@@ -68,7 +70,18 @@ public class JooqCategoryRepository implements CategoryRepository {
         return dsl.selectCount()
                 .from(name(SCHEMA, TABLE))
                 .where(field(name(SCHEMA, TABLE, "user_id")).eq(userId))
+                .and(isActive())
                 .fetchOne(0, Long.class);
+    }
+
+    @Override
+    public Optional<Category> findInactiveUserCategoryByName(String normalizedName, UUID userId) {
+        return dsl.select()
+                .from(name(SCHEMA, TABLE))
+                .where(field(name(SCHEMA, TABLE, "category_name")).eq(normalizedName))
+                .and(field(name(SCHEMA, TABLE, "user_id")).eq(userId))
+                .and(field(name(SCHEMA, TABLE, "is_active"), Boolean.class).isFalse())
+                .fetchOptional(this::map);
     }
 
     @Override
@@ -91,10 +104,25 @@ public class JooqCategoryRepository implements CategoryRepository {
     }
 
     @Override
-    public void delete(UUID categoryId) {
-        dsl.deleteFrom(org.jooq.impl.DSL.table(name(SCHEMA, TABLE)))
+    public void deactivate(UUID categoryId) {
+        setActive(categoryId, false);
+    }
+
+    @Override
+    public Category reactivate(UUID categoryId) {
+        setActive(categoryId, true);
+        return findByIdIgnoringAccess(categoryId);
+    }
+
+    private void setActive(UUID categoryId, boolean active) {
+        dsl.update(org.jooq.impl.DSL.table(name(SCHEMA, TABLE)))
+                .set(field(name("is_active"), Boolean.class), active)
                 .where(field(name("category_id")).eq(categoryId))
                 .execute();
+    }
+
+    private static org.jooq.Condition isActive() {
+        return field(name(SCHEMA, TABLE, "is_active"), Boolean.class).isTrue();
     }
 
     private Category findByIdIgnoringAccess(UUID categoryId) {
